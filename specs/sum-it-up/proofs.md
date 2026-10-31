@@ -1,6 +1,6 @@
 # Sum it up! Proofs
 
-Run 2026-10-31 on Chrome for Testing 156 (Playwright 1.64.1), macOS, with a throwaway extension. Minimum version 141 was not tested directly.
+Run 2026-10-31 on Chrome for Testing 156 (Playwright 1.64.1), macOS, with a throwaway extension. Panel opening, close, and worker restart were repeated on Chrome 141, and the real build loads there.
 
 ## Panel opening
 
@@ -11,15 +11,25 @@ Run 2026-10-31 on Chrome for Testing 156 (Playwright 1.64.1), macOS, with a thro
 | Control: content script timer, no click | Refused: "may only be called in response to a user gesture" |
 | Control: script-dispatched `.click()` from a timer | Refused, same error |
 | Real click, `open` called 8s later | Refused, same error |
-| Toolbar click open, second click close, per-tab behavior | NOT RUN: needs a real toolbar click |
+| Real toolbar clicks by product owner, 4 opens on one tab | PASS, every `open` succeeded with no `await` before it |
+| Second tab while the panel is open on the first | PASS, panel not shown, and no panel ever opened for that tab |
+| Real toolbar click on Proof in the extensions menu, panel open | PASS, panel closes. Chrome does it: logs show `onClosed` and no `action.onClicked`. |
+| Chrome's panel toggle (`>`) | PASS, panel closes, with no `action.onClicked` |
+| Panel calling `sidePanel.close` from a port message | PASS, including after stopping the worker with the panel open, where it reconnects its port |
+| Global `setOptions({enabled: false})` at every worker start, with a panel open. Not tested across a real browser restart. | PASS on 156 and 141, open panel stays open and a new tab can still open one |
 
 - FR42 and FR44 hold. No requirement change.
+- FR20 cannot work, because a toolbar click with the panel open never reaches the extension. FR20 is removed, and the panel's own button starts a summary. A pinned icon was not tested.
 - Playwright's page evaluation counts as a user gesture. Tests that check gestures need timers or real input.
-- "Real click" here is Playwright input through DevTools. OS-level input is part of the toolbar check.
+- Page-click cases use Playwright input through DevTools. Toolbar opens use real OS clicks. The close test sends the message directly, because the log from the manual session cannot show which control closed the panel.
+
+## Toolbar icon
+
+Product owner loaded the real build in Chrome and checked the icon by eye: looks right.
 
 ## Providers
 
-No tokens spent: the Anthropic account has no credit.
+First run had no account credit and spent no tokens. Second run had credit, on a 1098-word page with a 100-word cap, from the extension worker. Estimated cost: under $0.50.
 
 | Case | Result |
 |---|---|
@@ -30,15 +40,35 @@ No tokens spent: the Anthropic account has no credit.
 | Anthropic no credit | **400** `invalid_request_error` "Your credit balance is too low" |
 | OpenAI `GET /v1/models` and `POST /v1/responses`, fake key | 401. Both endpoints exist. |
 | Gemini models and `streamGenerateContent` with `x-goog-api-key`, fake key | **400** `INVALID_ARGUMENT` "API key not valid". Header is read. |
-| Claude streaming, event names, abort, 404 on retired model | NOT RUN: needs credit |
-| First text time on default models | NOT RUN: needs credit for Anthropic, keys for OpenAI and Gemini |
+| Anthropic retired model | 404 `not_found_error` |
+| Anthropic `thinking: {type: "disabled"}` on Sonnet 5.5 | 400. `between_tools` is the only way to turn thinking off, and it was slower. |
+| Claude streaming from the worker | PASS. Text arrives in `content_block_delta` with `text_delta`. Finish is `message_delta` with `stop_reason`, then `message_stop`. |
+| Abort mid-stream | PASS, `AbortError` and the partial text is kept |
+| OpenAI and Gemini first text time | NOT RUN: deferred by product owner |
 | OpenAI and Gemini with valid keys | NOT RUN: deferred by product owner |
+
+### Claude first text time and length
+
+20 runs each unless noted, from this machine, run in sequence. Word counts include bullet markers.
+
+| Model and settings | First text, median | First text, slowest | Words, range |
+|---|---|---|---|
+| `claude-sonnet-5-5`, effort low | 973ms | 1601ms | 117 to 131 |
+| `claude-sonnet-5-5`, effort low, `between_tools` | 1302ms | 1798ms | 91 to 117 |
+| `claude-sonnet-5-5`, defaults, 5 runs | 877ms | 1093ms | 125 to 131 |
+| `claude-haiku-5-5`, effort low | 899ms | 1264ms | 97 to 120 |
+| `claude-opus-5-5`, effort low, 5 runs | 1383ms | 1910ms | 94 to 102 |
+
+A later `claude-haiku-5-5` check at low effort measured 1215 to 3583ms. NFR1 holds for Claude on this page size: every run is under 4s against a 5s limit. Longer pages and other networks are not covered.
+
+A later `claude-haiku-5-5` check at low effort also tried low output limits: `max_tokens` 300 stopped once with no text, and 500 stopped once at 91 words. Thinking counts toward the limit, so the design uses 4000.
 
 ### Failures and fixes
 
 - P1. Bad Gemini key gives 400, not 401 or 403, so FR46 shows the wrong message. Fix: map Gemini `API_KEY_INVALID` to `auth`.
 - P2. No Anthropic credit gives 400, not 429. Fix: map the credit error to `rate`, so the user sees "Provider limit reached". Other providers need the same check with valid keys.
 - P3. The design has no `ProviderError.kind` for other 400s. Fix: add a kind and an FR46 row.
+- P6. Most runs exceed the 100-word cap with this basic prompt, so NFR4 fails as tested. Fix: tighten the prompts and measure them in the eval. Effort does not fix it.
 - P4. The API docs define `stop_reason: "refusal"` with HTTP 200. Neither FR46 nor the design handles it, and the stream finishes normally. Fix: add a kind and an FR46 row. Not triggered in this proof.
 
 ## YouTube
@@ -54,12 +84,13 @@ Signed-out Chromium profile, 5 videos plus 1 in-page navigation.
 | `kJQP7kiw5Fk` | 6 | 200, empty | 653 words, 0.5s |
 | In-page navigation to `6hh17h-Wd4Y` | 1 | 200, empty | 6118 words, 0.7s |
 
-- Track fetch: 0 of 6. Every track URL carries `exp=xpe`. The first design step does not work today.
+- Track fetch: 0 of 6. Every track URL carries `exp=xpe`. Caption track fetching does not work today.
 - Fallback ran 6 of 6 times and returned text 4 of 6 times.
-- Both failures are videos with chapters. A real click gives the same result: YouTube's own `get_transcript` call returns 400 and the panel stays empty after 25s. Calling `get_transcript` from the page returned 400 on all 3 videos tried.
+- Both failures have chapters, but chapters are not the proven cause. In the test profile, a real click gives the same result: YouTube's own `get_transcript` call returns 400 and the panel stays empty after 25s. Calling `get_transcript` from the page returned 400 on all 3 videos tried.
 - `ytInitialPlayerResponse` is stale after in-page navigation. `#movie_player.getPlayerResponse()` matches the URL.
-- Not tested: a video with no captions, and a signed-in profile. A signed-out automated profile can change YouTube's behavior.
+- Product owner's signed-in Chrome loaded the transcript for `arj7oStGLkU`, so that failure comes from the test profile, not from the video. `8jPQjjsBbIc` was not rechecked.
+- Not tested: a video with no captions.
 
-### Fix needed
+### Outcome
 
-- P5. Design step 3 adds no value. Decision needed on whether the panel-only read, which failed on 2 of 5 videos, is enough for FR34.
+- P5. Track fetch adds no value, so the YouTube read becomes panel only. YouTube is now P1 (see the requirements appendix), so this does not block the first release.
