@@ -1,0 +1,8 @@
+#!/bin/sh
+# Requires librsvg (brew install librsvg). Run after changing the logo, then commit the PNGs.
+set -eu
+
+cd "$(dirname "$0")/.."
+for size in 16 32 48 128; do
+  rsvg-convert -w "$size" -h "$size" -o "public/icon/$size.png" src/assets/logo.svg
+done

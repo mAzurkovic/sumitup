@@ -1,0 +1,22 @@
+:root,
+:host {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --text: #18181b;
+  --muted: #71717a;
+  --line: #e4e4e7;
+  --soft: #f4f4f5;
+  --accent: #166534;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root,
+  :host {
+    --bg: #18181b;
+    --text: #f4f4f5;
+    --muted: #a1a1aa;
+    --line: #2e2e33;
+    --soft: #27272a;
+    --accent: #86efac;
+  }
+}

@@ -4,7 +4,7 @@ Inputs: [requirements.md](requirements.md), [mocks/](mocks/index.html).
 
 ## Overview
 
-- Chrome extension that summarizes pages, YouTube transcripts, and selected text in a side panel or on-page popup, with chat grounded in that content.
+- Chrome extension that summarizes pages, selected text, and later YouTube transcripts (P1) in a side panel or on-page popup, with chat grounded in that content.
 - Manifest V3, minimum Chrome 141. No backend (NFR8): the service worker holds keys and calls the 3 provider APIs directly with the user's key.
 
 ## Stack
@@ -13,6 +13,7 @@ Inputs: [requirements.md](requirements.md), [mocks/](mocks/index.html).
 - React 19, side panel only. Plain CSS with shared variables, styled per Visual Style below. No UI library.
 - Plain TypeScript for on-page UI.
 - `@mozilla/readability` 0.6.0, loaded on click only.
+- Build output in `dist/`, visible in Finder.
 - Vitest 5, `@playwright/test` 1.64.
 - No AI SDK, no Markdown library.
 
@@ -26,7 +27,7 @@ Paths under `src/`.
 | Selection UI | `entrypoints/content/` | Button and popup in a closed Shadow DOM, top frame only, no framework (mocks 05, 06) |
 | Side panel | `entrypoints/sidepanel/` | React app, one instance per tab (mocks 01 to 04, 07 to 09) |
 | Extractor | `entrypoints/extract.ts` | Unlisted script injected on click. Readability on a cloned document, word count, video flag |
-| YouTube reader | `lib/youtube.ts` | Two-step transcript read. All YouTube selectors live here |
+| YouTube reader (P1) | `lib/youtube.ts` | Transcript panel read. All YouTube selectors live here |
 | Provider adapters | `lib/providers/{anthropic,openai,gemini}.ts` | One fetch and stream parser per provider |
 | Model registry | `lib/models.ts` | Fixed model list, defaults, input limits, per-model request settings |
 | Summarizer | `lib/summarize.ts` | Single-call and split-and-merge flows |
@@ -50,9 +51,9 @@ Paths under `src/`.
 | `SummaryCard` | 02, 03, 08 | Streaming text, Stop, "Incomplete" tag, Retry, "Video not included" tag |
 | `StatusCard` | 08 | Spinner, "New page", long page confirm, all FR46 messages |
 | `ChatMessages` | 02, 09 | User and bot bubbles |
-| `ChatInput` | all | Fixed at bottom in every state (FR62). Disabled until a summary is on screen (FR71) |
+| `ChatInput` | all | Fixed at bottom in every state (FR62). Disabled until a complete or "Incomplete" summary is on screen, so not after a refusal (FR71) |
 
-Panel state: `needsKey`, `newPage`, `confirmLong`, `waiting`, `streaming`, `complete`, `incomplete`, `noContent`, `error`. Errors with a summary on screen show as a banner above it (FR47).
+Panel state: `needsKey`, `newPage`, `ready`, `confirmLong`, `waiting`, `streaming`, `complete`, `incomplete`, `noContent`, `error`. Errors with a summary on screen show as a banner above it (FR47). A URL change from any state goes to `newPage` (FR58). `ready` shows "Sum it up?" with a button (FR29).
 
 ```mermaid
 stateDiagram-v2
@@ -61,14 +62,17 @@ stateDiagram-v2
   needsKey --> waiting: valid save
   waiting --> confirmLong: over model limit
   confirmLong --> waiting: Continue
-  confirmLong --> newPage: Cancel
+  confirmLong --> ready: Cancel
+  ready --> waiting: Sum it up
   waiting --> noContent: under 200 words, no captions, restricted
   waiting --> streaming: first text
   waiting --> error: call failed
   streaming --> complete: finished
   streaming --> incomplete: Stop, panel closed, cut off
+  streaming --> error: refused, text kept
   incomplete --> waiting: Retry
-  error --> waiting: Retry
+  error --> waiting: Retry, not refused
+  complete --> waiting: level change, not cached
   complete --> newPage: URL change
   newPage --> waiting: Sum it up
 ```
@@ -104,7 +108,7 @@ Minimal and modern, per mock 10. `lib/theme.css` holds the variables, used by th
 - Permissions: `sidePanel`, `storage`, `scripting`.
 - Host permissions: `<all_urls>`. Needed for FR38 on all sites. Shows Chrome's "read and change all your data" install warning and draws closer store review.
 - Content script: `<all_urls>`, `document_idle`, `all_frames: false`.
-- Panel disabled by default, enabled per tab with `sidePanel.setOptions({tabId, path, enabled})`.
+- Panel disabled by default: `sidePanel.setOptions({enabled: false})` on every worker start, because Chrome resets it on browser restart. An `onStartup` listener is what makes Chrome start the worker on a browser start, so it stays even though the call also runs directly. Enabled per tab with `sidePanel.setOptions({tabId, path, enabled})`.
 - No `externally_connectable`. No remote code.
 
 ## Data Model
@@ -114,22 +118,25 @@ Minimal and modern, per mock 10. `lib/theme.css` holds the variables, used by th
   - `settings`: `{provider, modelByProvider, level}`.
 - `storage.session`, memory only, default restricted, cleared on browser restart (FR66):
   - `tab:<tabId>`: `{url, scope, selectionText?, summaries, chat[], source?}`.
-  - `summaries`: map of `<url>|<scope>|<level>|<model>` to `{text, status: complete|incomplete}` (FR56).
+  - `summaries`: map of `<url>|<scope>|<level>|<model>` to `{text, status: complete|incomplete|refused}` (FR56).
   - `chat[]`: `{role, text}`.
   - `source`: `{kind: page|transcript|selection, text, videoExcluded}`.
+- A new selection deletes the tab's `selection` summaries, because the cache key does not identify the selected text.
 - Limits: 10 MB session quota. Over quota: drop `source` text from the least recently used tab, keep summaries and chat, re-extract on next need at no token cost.
 - Cleanup: `tabs.onRemoved` deletes the tab entry (FR56, FR65). Extension update clears session data. Accepted.
 
 ## Models
 
-| Provider | Default | Cheap | Most capable |
+| Provider | Default (cheapest) | Balanced | Most capable |
 |---|---|---|---|
-| Anthropic | `claude-sonnet-5-5` | `claude-haiku-5-5` | `claude-opus-5-5` |
-| OpenAI | `gpt-6.1-sol` | `gpt-6-luna` | `gpt-6-astra` |
-| Google | `gemini-3.8-flash` | `gemini-3.5-flash-lite` | `gemini-4-argon` |
+| Anthropic | `claude-haiku-5-5` | `claude-sonnet-5-5` | `claude-opus-5-5` |
+| OpenAI | `gpt-6-luna` | `gpt-6.1-sol` | `gpt-6-astra` |
+| Google | `gemini-3.5-flash-lite` | `gemini-3.8-flash` | `gemini-4-argon` |
 
-- Input limits stored in `lib/models.ts`. Anthropic 1M, OpenAI 1.05M, Google from `inputTokenLimit` at build time.
-- Per-model thinking and effort settings stored there, tuned against NFR1. A default that misses NFR1 switches to that provider's cheap model.
+- Input limits stored in `lib/models.ts`. Anthropic 1M, OpenAI 1.05M, Google from its docs, checked against `inputTokenLimit` before the store release.
+- Per-model settings stored there. All models use their lowest effort setting. Anthropic: `output_config: {effort: "low"}` with thinking left on. First text stayed under 4s on all runs across the 3 Anthropic models, and `between_tools` was slower.
+- `maxOutput` is 4000 tokens at every level. Thinking counts toward it, and lower values stopped Haiku early in testing (300 stopped with no text, 500 stopped at 91 words). Word caps come from the prompts.
+- Defaults are the cheapest model on each provider, chosen by the product owner to protect users' tokens. Summary quality on these is not yet judged.
 
 ## Interfaces
 
@@ -146,47 +153,47 @@ Provider adapter:
 
 `ProviderError.kind`, mapped to FR46:
 
-- `auth`: 401, 403.
-- `rate`: 429.
-- `unavailable`: 5xx, or no first text within 30s.
+- `auth`: 401, 403, Gemini 400 with `API_KEY_INVALID`.
+- `rate`: 429, 402, Anthropic 400 with the credit balance message. Other providers' credit errors get added once proven with real keys.
+- `unavailable`: 5xx, no first text within 30s, or fetch `TypeError` with `navigator.onLine` true (DNS failure, dropped VPN).
 - `offline`: fetch `TypeError` with `navigator.onLine` false.
-- `cutoff`: stream ended without the provider's finish event.
+- `cutoff`: stream ended without the provider's finish event, or finished because of the output limit (Anthropic `stop_reason: "max_tokens"`). With no text yet, it shows "Provider unavailable" with Retry.
 - `modelGone`: 404 on the model.
+- `rejected`: any other 4xx.
+- `refused`: Anthropic `stop_reason: "refusal"` on HTTP 200, or the other providers' equivalent. With text on screen, it is stored as `refused` and shows the FR46 message and link, with no Retry, including after the panel reopens.
+
+Anthropic stream: text in `content_block_delta` with `text_delta`, finish in `message_delta` with `stop_reason`, then `message_stop`. Requests to `claude-sonnet-5-5` and `claude-opus-5-5` add `fallbacks: "default"` with `anthropic-beta: server-side-fallback-2026-07-01`, so some false refusals can still get a summary. The default `claude-haiku-5-5` has no server-side fallback, so its refusals show the FR46 message.
 
 Runtime messages:
 
-- Panel to worker: port `panel:<tabId>`. Sends `summarize`, `retry`, `stop`, `chat`, `setLevel`, `setModel`, `saveKey`, `deleteKey`. Receives `state`, `delta`, `done`, `error`, `navigated`, `toolbarClick`.
+- Panel to worker: port `panel:<tabId>`. Sends `summarize`, `retry`, `stop`, `chat`, `setLevel`, `setModel`, `saveKey`, `deleteKey`. Receives `state`, `delta`, `done`, `error`, `navigated`.
 - Content script to worker: port `selection`. Sends `summarizeSelection {text}`, `stop`. Receives `delta`, `done`, `error`. Message `openPanel {text}` for "More" and no key.
 - Worker takes `tabId` from `sender.tab.id`, never from the message. Content script never receives keys.
 
 ## Flows
 
-### Toolbar click (FR18 to FR21)
+### Toolbar click (FR18, FR19, FR21)
 
 `sidePanel.open` only works in the user action, so the worker calls it before any `await`.
 
 ```mermaid
 sequenceDiagram
-  User->>Worker: action.onClicked(tab)
+  User->>Worker: action.onClicked(tab), panel closed
   Worker->>Chrome: setOptions(tabId, path?tabId, enabled), no await
   Worker->>Chrome: open(tabId), no await
-  alt panel already connected
-    Worker->>Panel: toolbarClick
-    Panel->>Panel: no summary: start. Otherwise: sidePanel.close
-  else panel just opened
-    Panel->>Worker: connect port
-    Panel->>Worker: read tab state
-    Panel->>Panel: state exists: restore. Otherwise: start
-  end
+  Panel->>Worker: connect port
+  Panel->>Worker: read tab state
+  Panel->>Panel: state exists: restore. Otherwise: start
 ```
 
+- Panel open: Chrome closes it on a toolbar click, with no `action.onClicked` event. Seen from the extensions menu. A pinned icon is checked in the toolbar task.
 - Open panels hold a port and reconnect when it drops, so a restarted worker sees them again.
 - Chevron calls `sidePanel.close`. Other tabs stay disabled (FR23).
 
 ### Page summary
 
 - 1. Panel sends `summarize`. Worker checks the key, then the cache by URL, scope, level, model.
-- 2. Worker reads content: `scripting.executeScript` runs `extract.ts`, or `lib/youtube.ts` on a watch page. Injection failure or `contentType` PDF means restricted (FR33).
+- 2. Worker reads content: `scripting.executeScript` runs `extract.ts`. YouTube pages use this path until the P1 read ships. Injection failure or `contentType` PDF means restricted (FR33).
 - 3. Under 200 words: `noContent`, no call (FR26). Over the model limit: `confirmLong` with token estimate (FR27).
 - 4. Worker streams from the adapter, sends `delta` to the panel, saves text to session as it arrives.
 - 5. Stop or port disconnect aborts the fetch. Text so far saved as `incomplete` (FR32, FR77). No auto-retry anywhere (FR48).
@@ -219,20 +226,21 @@ sequenceDiagram
 - `status: loading` with the same URL: reload, delete that URL's summaries (FR57).
 - Works for single-page apps, since `onUpdated` reports history changes.
 
-### YouTube transcript (FR34, FR35, new FR46 row)
+### YouTube transcript, P1 (FR34, FR35, FR46 row)
 
-- 1. Watch page detected by URL. Worker runs a `MAIN` world script: read caption tracks from the player's response data, checking the video ID matches the URL, since `ytInitialPlayerResponse` goes stale after in-page navigation.
+Not in the first release. Proofs showed caption track fetches return empty today.
+
+- 1. Watch page detected by URL. Worker runs a `MAIN` world script: read caption tracks from `#movie_player.getPlayerResponse()`, checking the video ID matches the URL. `ytInitialPlayerResponse` goes stale after in-page navigation.
 - 2. Empty track list: "No transcript available for this video".
-- 3. Tracks exist: fetch the track URL from the page, parse `json3`.
-- 4. Empty response: click "Show transcript", wait up to 5s for segments, read text, close the panel.
-- 5. Both fail: "Couldn't read the transcript", Retry.
+- 3. Tracks exist: click "Show transcript", wait up to 5s for segments, read text, close the panel.
+- 4. Panel fails: "Couldn't read the transcript", Retry.
 
 ## Infra
 
 - Repo: GitHub. No hosting, no server.
 - `.github/workflows/ci.yml`, on pull request: `tsc`, Vitest, `wxt build`, Playwright against a local fake provider server. No keys, no tokens.
 - `.github/workflows/release.yml`, on version tag: runs CI steps, `wxt zip`, attaches the zip to a GitHub Release. Upload to the store is manual.
-- `npm run eval`, local with your keys, before each release: NFR1, NFR4, NFR5 report, NFR10 network log, NFR12, FR64, FR76, and 5 live YouTube videos. Test pages in `evals/pages.json`.
+- `npm run eval`, local with your keys, before each release: NFR1, NFR4, NFR5 report, NFR10 network log, NFR12, FR64, FR76. Runs on the default models at lowest effort to limit token use. All live test calls follow the same rule unless a test needs a specific model. Test pages in `evals/pages.json`.
 - Test build sets provider base URLs through a build variable to reach the fake server. Production builds hardcode real hosts.
 - Playwright: `launchPersistentContext` with `--load-extension`. Fake server scripts every FR46 failure.
 - Store listing: privacy disclosure (NFR14) and privacy policy in `store/`.
@@ -245,18 +253,17 @@ sequenceDiagram
 - D4. React in panel, plain TypeScript on pages. Alternative: React everywhere. Why: protects the 50ms limit in NFR3 on every site.
 - D5. Plain CSS with a defined visual style, no UI library. Alternative: Tailwind or a component kit. Why: about a dozen components, the look comes from the variables and rules above, and native dropdowns plus the Popover API cover what a kit would add.
 - D6. Readability injected on click. Alternative: bundle in the content script. Why: nothing heavy loads on page load.
-- D7. Two-step YouTube read. Alternative: caption fetch only, or a paid API. Why: survives one method breaking, and paid APIs break NFR8.
+- D7. Panel-only YouTube read, P1. Alternative: caption fetch first, or a paid API. Why: caption fetch returned empty on 6 of 6 runs, and paid APIs break NFR8. Limit: depends on YouTube's page layout.
 - D8. Keyword match for long-page chat. Alternative: part summaries, embeddings. Why: uses real page text at no extra API cost. Limit: misses questions that share no words with the page.
 - D9. Key check by listing models. Alternative: 1-token test call. Why: no token cost.
 - D10. Abort on panel close (FR77). Alternative: keep generating. Why: no spending with nothing on screen, and the worker can be shut down mid-run.
 - D11. Summaries streamed through `storage.session`. Alternative: IndexedDB. Why: memory only, so FR66 holds without extra cleanup.
+- D13. Word caps set in the prompts and measured in the eval. Alternative: cut text after generation. Why: a basic prompt overshot the 100-word cap, and cutting text mid-sentence reads worse.
+- D14. Server-side refusal fallback on Anthropic. Alternative: show the refusal only. Why: pages on security topics can trigger false refusals. Limit: Sonnet 5.5 retries only the `cyber` and `frontier_llm` categories, so other refusals still show the FR46 message. The fallback model runs at its own rates, and it is unproven until task 2.3. If that check rejects the request, remove `fallbacks` and this decision.
 - D12. Manual store upload. Alternative: automated on tag. Why: no store credentials in CI, and a bad tag cannot reach review.
 
 ## Open Questions
 
-Build checks, not product decisions. First build task proves each one in real Chrome.
+Results in [proofs.md](proofs.md).
 
-- OQ1. `sidePanel.open` from a content script message (FR42, FR44). User action passing through messaging is unconfirmed. If it fails, "More" and no-key flows need a requirement change. Owner: implementer.
-- OQ2. YouTube read steps on current YouTube, including how often the fallback runs. Owner: implementer.
-- OQ3. Direct calls from the worker for all 3 providers, including the Anthropic header (community sources only), OpenAI `GET /v1/models`, and Gemini streaming with `x-goog-api-key`. Docs fetched for this design did not state these. Owner: implementer.
-- OQ4. NFR1 on the 3 default models. Owner: implementer.
+- OQ1. OpenAI and Gemini with real keys: streaming, finish events, credit errors, refusals, output limit stops, input limits, first text time. Product owner accepted these as unproven until before the store release.

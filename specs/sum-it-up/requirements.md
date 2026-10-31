@@ -41,8 +41,8 @@ UI mocks: [mocks/index.html](mocks/index.html). Mocks validate layout, flow, and
 
 - FR18. Toolbar click, panel closed, no summary for this page: the side panel MUST open on that tab and the summary MUST start.
 - FR19. Toolbar click, panel closed, summary exists: the panel MUST reopen with the same summary and chat, with no new API call.
-- FR20. Toolbar click, panel open, no summary for this page: the summary MUST start.
-- FR21. Toolbar click, panel open, summary or setup showing: the panel MUST close.
+- FR20. Removed. With the panel open, Chrome handles toolbar clicks itself and the extension receives no event. The panel's own "Sum it up" button starts a summary.
+- FR21. Toolbar click, panel open: the panel MUST close.
 - FR22. Collapse: the chevron in the panel MUST close the panel. Reopening MUST show the same summary and chat with no new API call.
 - FR23. Per tab: the panel MUST open only on the tab where the user opened it. Other tabs MUST stay closed until the user opens the panel there.
 - FR24. Heading: the panel MUST show "Page summary" for a page summary and "Selected text summary" for a selection summary.
@@ -61,7 +61,7 @@ UI mocks: [mocks/index.html](mocks/index.html). Mocks validate layout, flow, and
 
 - FR34. YouTube: on a YouTube watch page, the summary MUST use the video's existing transcript or captions.
 - FR35. No captions: on a YouTube watch page without captions, the panel MUST show "No transcript available for this video" and make no API call.
-- FR36. Other video: on other sites with video, the summary MUST use page text only. The panel MUST show "Video not included in this summary".
+- FR36. Other video: on sites with video other than YouTube watch pages, the summary MUST use page text only. The panel MUST show "Video not included in this summary".
 - FR37. Video audio and frames MUST NOT be sent to any provider.
 
 ### Highlight summary
@@ -81,13 +81,15 @@ UI mocks: [mocks/index.html](mocks/index.html). Mocks validate layout, flow, and
 
 | Failure | Message | Action |
 |---|---|---|
-| Invalid or revoked key (401, 403) | API key rejected | Link opens the provider dropdown |
-| Rate limit or quota (429) | Provider limit reached | Retry button |
-| Provider down (5xx) or no first output within 30s | Provider unavailable | Retry button |
+| Invalid or revoked key (401, 403, or the provider's invalid-key error) | API key rejected | Link opens the provider dropdown |
+| Rate limit, quota, or no credit (429, 402, or the provider's out-of-credit error) | Provider limit reached | Retry button |
+| Provider down (5xx), no first output within 30s, or cut off before any text | Provider unavailable | Retry button |
 | Offline | No connection | Retry button |
 | Output cut off mid-stream | Partial text labeled "Incomplete" | Retry button |
 | Restricted page (any page Chrome blocks extensions from reading, including chrome://, Chrome Web Store, new tab, PDFs) | Sum it up can't read this page | None |
 | Model retired by provider | Model unavailable | Link opens the provider dropdown |
+| Provider rejects the request for any other reason (other 4xx) | Provider rejected the request | Retry button |
+| Provider declines the content on safety grounds | Provider declined this content | Link opens the provider dropdown |
 | YouTube video has caption tracks, but the transcript cannot be read | Couldn't read the transcript | Retry button |
 
 - FR47. Existing content: a failure MUST NOT remove a summary already on screen.
@@ -122,7 +124,7 @@ UI mocks: [mocks/index.html](mocks/index.html). Mocks validate layout, flow, and
 - FR65. History scope: chat history MUST last only for the current page in that tab. It MUST clear on navigation, tab close, and browser restart.
 - FR66. No saving: chat history MUST NOT be written to disk.
 - FR67. Level change: changing detail level MUST NOT clear chat.
-- FR71. Availability: the chat text box MUST be disabled until a summary, complete or labeled "Incomplete", is on screen.
+- FR71. Availability: the chat text box MUST be disabled until a summary, complete or labeled "Incomplete", is on screen. Text kept after a provider refusal does not count.
 - FR72. Scrolling: the summary and chat messages MUST scroll together as one column in the panel, with no separate scroll area for either.
 - FR73. Fixed controls: the panel heading, level dropdown, and model dropdown MUST stay visible while the column scrolls.
 - FR74. New messages: each new chat message MUST scroll into view.
@@ -160,7 +162,7 @@ Built after the core website use cases ship. Requirements stay as written, and t
 - FR46 row "Couldn't read the transcript".
 - YouTube pages in the NFR4 and NFR5 test sets, and YouTube transcript requests in NFR10.
 
-Until then, YouTube pages get no transcript summary. Reason: YouTube already offers its own video summaries.
+Until then, YouTube pages are treated like other sites with video under FR36: page text only, with "Video not included in this summary". Reason: YouTube already offers its own video summaries.
 
 ## Out of Scope
 
