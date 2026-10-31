@@ -10,7 +10,7 @@ Proofs run first. A failed proof stops the build and goes back to the product ow
 
 - [x] 1.1 Scaffold the project: `package.json` with `wxt` pinned exact at 0.21.5, `wxt.config.ts` with `srcDir: "src"`, manifest per design, `tsconfig.json`, `git init`, `.gitignore` including `.env.local`. `npm run build` output loads in Chrome 141+.
 - [x] 1.2 Add `src/lib/theme.css` with the design's variables, `src/assets/logo.svg` copied from `specs/sum-it-up/mocks/logo.svg`, and `scripts/build-icons` for 16, 32, 48, 128px PNGs. Toolbar shows the icon, and the 16px result is reviewed by eye.
-- [ ] 1.3 Add `.github/workflows/ci.yml` running `tsc`, Vitest, and `wxt build` on pull requests, with the Playwright step added in 5.2. Workflow passes on a test pull request.
+- [x] 1.3 Add `.github/workflows/ci.yml` running `tsc`, Vitest, and `wxt build` on pull requests, with the Playwright step added in 5.2. Workflow passes on a test pull request.
 - [x] 1.4 Prove panel opening in `specs/sum-it-up/proofs.md`: `sidePanel.open` from a content script message, toolbar open and close with no `await` before `open`, and per-tab enablement. Results recorded, and a failure on FR42 or FR44 stops the build.
 - [x] 1.5 Prove direct provider calls in `proofs.md`, using the Anthropic key from `.env.local`: worker fetch to all 3 providers, Claude streaming and first text time, Anthropic browser header, key check by listing models, `x-goog-api-key`. Results recorded, and each failure has a named fix. Real-key proof for OpenAI and Gemini is in Before store release.
 - [x] 1.6 Prove the YouTube read in `proofs.md` on 5 live YouTube videos: caption track read after in-page navigation, track fetch, and transcript panel fallback. Results recorded with how often the fallback ran.

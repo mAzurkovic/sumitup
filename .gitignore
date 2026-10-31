@@ -4,3 +4,4 @@ dist/
 .wxt/
 coverage/
 .DS_Store
+specs/**/progress.md
