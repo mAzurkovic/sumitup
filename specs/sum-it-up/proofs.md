@@ -85,6 +85,35 @@ Run 2026-11-01 through the real adapter, from Node on this machine and not the e
 - P6. Most runs exceed the 100-word cap with this basic prompt, so NFR4 fails as tested. Fix: tighten the prompts and measure them in the eval. Effort does not fix it.
 - P4. The API docs define `stop_reason: "refusal"` with HTTP 200. Neither FR46 nor the design handles it, and the stream finishes normally. Fix: add a kind and an FR46 row. Not triggered in this proof.
 
+## Example: page to summary and chat
+
+Run 2026-11-01 on one test page written for this proof, not a live website. The built `extract.js` ran in headless Chrome. The real adapter then made 3 short `claude-haiku-5-5` calls from Node.
+
+| Part of the page | Sample text | In the extracted text |
+|---|---|---|
+| Article paragraphs and section headings | "When a forager honeybee finds a rich patch of flowers" | Kept, as 7 paragraphs |
+| Site `<nav>` and `<nav>` inside the article | "News", "The dance" link | Removed |
+| `.ad-slot`, `<ins class="adsbygoogle">`, `#taboola-below-article` inside the article | "Buy premium bee suits" | Removed |
+| Last section titled "12 Comments" | "Bees are overrated" | Removed |
+| Site footer | "Copyright 2026" | Removed |
+
+Result: `wordCount` 271, `hasVideo` false, `isPdf` false.
+
+Short summary, 78 words against a cap of 100, 4 bullets against 3 to 5:
+
+> - **Waggle dance:** Forager bees tell nestmates where food is by running in a straight line while shaking their abdomen, then circling back.
+> - **Coding:** The run's angle to vertical matches the food's angle to the sun. Run length and waggle time indicate distance, about one second per kilometre.
+> - **Adjustment:** Dancers correct the angle over time as the sun moves.
+> - **Learning:** A field study found young bees dance less precisely, and precision improves after following experienced dancers, suggesting social learning.
+
+| Chat question | Answer | Calls |
+|---|---|---|
+| "What does one second of waggling mean?" | "According to the content, about one second of waggling means roughly one kilometre of flight." | 1 |
+| "What is the capital of France?" | "This page doesn't cover that" | 1, the model gave the fixed reply |
+| "quantum physics?", with the limit set to 300 tokens so the page counts as long | "This page doesn't cover that" | 0 |
+
+- One page and one run. This does not measure word caps or extraction quality across pages, which the eval does.
+
 ## YouTube
 
 Signed-out Chromium profile, 5 videos plus 1 in-page navigation.
