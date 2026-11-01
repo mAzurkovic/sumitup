@@ -5,7 +5,7 @@ Inputs: [requirements.md](requirements.md), [mocks/](mocks/index.html).
 ## Overview
 
 - Chrome extension that summarizes pages, selected text, and later YouTube transcripts (P1) in a side panel or on-page popup, with chat grounded in that content.
-- Manifest V3, minimum Chrome 141. No backend (NFR8): the service worker holds keys and calls the 3 provider APIs directly with the user's key.
+- Manifest V3, minimum Chrome 141. No backend (NFR8): the service worker holds the key and calls the Anthropic API directly with the user's key. OpenAI and Google are P1, and their rows below stay as the plan for that work.
 
 ## Stack
 
@@ -28,7 +28,7 @@ Paths under `src/`.
 | Side panel | `entrypoints/sidepanel/` | React app, one instance per tab (mocks 01 to 04, 07 to 09) |
 | Extractor | `entrypoints/extract.ts` | Unlisted script injected on click. Readability on a cloned document, word count, video flag |
 | YouTube reader (P1) | `lib/youtube.ts` | Transcript panel read. All YouTube selectors live here |
-| Provider adapters | `lib/providers/{anthropic,openai,gemini}.ts` | One fetch and stream parser per provider |
+| Provider adapter | `lib/providers/anthropic.ts`, with `openai.ts` and `gemini.ts` in P1 | One fetch and stream parser per provider |
 | Model registry | `lib/models.ts` | Fixed model list, defaults, input limits, per-model request settings |
 | Summarizer | `lib/summarize.ts` | Single-call and split-and-merge flows |
 | Chat | `lib/chat.ts` | Grounded prompt, part matching, history trimming |
@@ -43,7 +43,7 @@ Paths under `src/`.
 |---|---|---|
 | `Header` | 02 | "Sum it up!" wordmark and chevron, then heading ("Page summary" or "Selected text summary"). Fixed (FR73) |
 | `LevelSelect` | 03, 04 | "Detail level" label above. Short, Medium, In-depth, ELI5. Fixed (FR73) |
-| `ModelMenu` | 04 | "Model" label above. Pill shows model. Holds provider, model, masked key, Delete, notice. All setup lives here (FR4, NFR15) |
+| `ModelMenu` | 04 | "Model" label above. Pill shows model. Holds model, masked key, Delete, notice, and the provider choice in P1. All setup lives here (FR4, NFR15) |
 | `KeySetup` | 01, 04 | Key field, key page link, notice, Save. Full panel on first use, inside `ModelMenu` otherwise |
 | `ScopeLink` | 07 | "Summarize whole page". Fixed |
 | `ModelSwitchAction` | 08 | "Summarize with <model>" (FR17). Fixed |
@@ -114,8 +114,8 @@ Minimal and modern, per mock 10. `lib/theme.css` holds the variables, used by th
 ## Data Model
 
 - `storage.local`, restricted with `setAccessLevel(TRUSTED_CONTEXTS)` on install so content scripts have no access:
-  - `keys`: `{anthropic?, openai?, gemini?}` strings.
-  - `settings`: `{provider, modelByProvider, level}`.
+  - `keys`: `{anthropic?}` strings. P1 adds `openai` and `gemini`.
+  - `settings`: `{provider, modelByProvider, level}`. `provider` is always `anthropic` until P1.
 - `storage.session`, memory only, default restricted, cleared on browser restart (FR66):
   - `tab:<tabId>`: `{url, scope, selectionText?, summaries, chat[], source?}`.
   - `summaries`: map of `<url>|<scope>|<level>|<model>` to `{text, status: complete|incomplete|refused}` (FR56).
@@ -130,10 +130,11 @@ Minimal and modern, per mock 10. `lib/theme.css` holds the variables, used by th
 | Provider | Default (cheapest) | Balanced | Most capable |
 |---|---|---|---|
 | Anthropic | `claude-haiku-5-5` | `claude-sonnet-5-5` | `claude-opus-5-5` |
-| OpenAI | `gpt-6-luna` | `gpt-6.1-sol` | `gpt-6-astra` |
-| Google | `gemini-3.5-flash-lite` | `gemini-3.8-flash` | `gemini-4-argon` |
+| OpenAI (P1) | `gpt-6-luna` | `gpt-6.1-sol` | `gpt-6-astra` |
+| Google (P1) | `gemini-3.5-flash-lite` | `gemini-3.8-flash` | `gemini-4-argon` |
 
-- Input limits stored in `lib/models.ts`. Anthropic 1M, OpenAI 1.05M, Google from its docs, checked against `inputTokenLimit` before the store release.
+- Input limits stored in `lib/models.ts`. Anthropic 1M. In P1: OpenAI 1.05M, and Google 1,048,576 from its docs, checked against `inputTokenLimit`.
+- P1 lowest settings, from the provider docs: OpenAI `reasoning.effort` is `none` on `gpt-6-luna` and `low` on the others. Google `thinkingLevel` is `MINIMAL` on `gemini-3.5-flash-lite` and `LOW` on the others. OpenAI requests set `store: false`, so the provider does not keep page content.
 - Per-model settings stored there. All models use their lowest effort setting. Anthropic: `output_config: {effort: "low"}` with thinking left on. First text stayed under 4s on all runs across the 3 Anthropic models, and `between_tools` was slower.
 - `maxOutput` is 4000 tokens at every level. Thinking counts toward it, and lower values stopped Haiku early in testing (300 stopped with no text, 500 stopped at 91 words). Word caps come from the prompts.
 - Defaults are the cheapest model on each provider, chosen by the product owner to protect users' tokens. Summary quality on these is not yet judged.
@@ -148,21 +149,23 @@ Provider adapter:
 | Provider | Stream call | Auth | Validate |
 |---|---|---|---|
 | Anthropic | `POST api.anthropic.com/v1/messages` | `x-api-key`, `anthropic-version`, `anthropic-dangerous-direct-browser-access: true` | `GET /v1/models` |
-| OpenAI | `POST api.openai.com/v1/responses`, reads `response.output_text.delta` | `Authorization: Bearer` | `GET /v1/models` |
-| Google | `POST generativelanguage.googleapis.com/v1beta/models/<id>:streamGenerateContent?alt=sse` | `x-goog-api-key` | `GET /v1beta/models` |
+| OpenAI (P1) | `POST api.openai.com/v1/responses`, reads `response.output_text.delta` | `Authorization: Bearer` | `GET /v1/models` |
+| Google (P1) | `POST generativelanguage.googleapis.com/v1beta/models/<id>:streamGenerateContent?alt=sse` | `x-goog-api-key` | `GET /v1beta/models` |
 
 `ProviderError.kind`, mapped to FR46:
 
-- `auth`: 401, 403, Gemini 400 with `API_KEY_INVALID`.
+- `auth`: 401, 403, and in P1 Gemini 400 with `API_KEY_INVALID`.
 - `rate`: 429, 402, Anthropic 400 with the credit balance message. Other providers' credit errors get added once proven with real keys.
 - `unavailable`: 5xx, no first text within 30s, or fetch `TypeError` with `navigator.onLine` true (DNS failure, dropped VPN).
 - `offline`: fetch `TypeError` with `navigator.onLine` false.
-- `cutoff`: stream ended without the provider's finish event, or finished because of the output limit (Anthropic `stop_reason: "max_tokens"`). With no text yet, it shows "Provider unavailable" with Retry.
+- `cutoff`: stream ended without the provider's finish event, an error event arrived inside a 200 stream (so a mid-stream rate limit shows as cut off), or the stream finished with no text or with any Anthropic `stop_reason` other than `end_turn`, `stop_sequence`, or `refusal` (such as `max_tokens` or `model_context_window_exceeded`). With no text yet, it shows "Provider unavailable" with Retry.
+- The 30s limit applies to first text only. A stream that stalls after that has no time limit, and the user can press Stop.
+- Once the response has started, a dropped connection or a malformed event is `cutoff`, even when offline. `offline` applies only to the fetch call itself.
 - `modelGone`: 404 on the model.
 - `rejected`: any other 4xx.
 - `refused`: Anthropic `stop_reason: "refusal"` on HTTP 200, or the other providers' equivalent. With text on screen, it is stored as `refused` and shows the FR46 message and link, with no Retry, including after the panel reopens.
 
-Anthropic stream: text in `content_block_delta` with `text_delta`, finish in `message_delta` with `stop_reason`, then `message_stop`. Requests to `claude-sonnet-5-5` and `claude-opus-5-5` add `fallbacks: "default"` with `anthropic-beta: server-side-fallback-2026-07-01`, so some false refusals can still get a summary. The default `claude-haiku-5-5` has no server-side fallback, so its refusals show the FR46 message.
+Anthropic stream: text in `content_block_delta` with `text_delta`, finish in `message_delta` with `stop_reason`, then `message_stop`, which the adapter does not wait for. A fallback continues on the same stream: text so far stays, a `fallback` block marks the switch, and text continues. Requests to `claude-sonnet-5-5` and `claude-opus-5-5` add `fallbacks: "default"` with `anthropic-beta: server-side-fallback-2026-07-01`, so some false refusals can still get a summary. The default `claude-haiku-5-5` has no server-side fallback, so its refusals show the FR46 message.
 
 Runtime messages:
 
@@ -211,6 +214,7 @@ sequenceDiagram
 - System prompt: answer only from delimited content, otherwise reply exactly "This page doesn't cover that".
 - Under the limit: send full `source.text` each question.
 - Over the limit: split into parts, score with keyword match, send top parts up to the limit. No match: return the fixed reply with no API call.
+- Keywords are the question's words minus common English words. A question of only common words uses all its words, so a part that shares them still gets sent and costs a call. Other languages have no common word list yet.
 - History trimmed oldest first to stay under the limit. Cleared on URL change and on scope change (FR45, FR58).
 
 ### Selection (FR38 to FR44)
@@ -266,4 +270,4 @@ Not in the first release. Proofs showed caption track fetches return empty today
 
 Results in [proofs.md](proofs.md).
 
-- OQ1. OpenAI and Gemini with real keys: streaming, finish events, credit errors, refusals, output limit stops, input limits, first text time. Product owner accepted these as unproven until before the store release.
+- OQ1. OpenAI and Gemini with real keys: streaming, finish events, credit errors, refusals, output limit stops, input limits, first text time. Moved to P1 by the product owner, and it blocks shipping those providers, not the first release.

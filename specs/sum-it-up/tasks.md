@@ -17,14 +17,12 @@ Proofs run first. A failed proof stops the build and goes back to the product ow
 
 ## 2. Providers and text tools [parallel]
 
-Subtasks [parallel], except 2.3 runs before 2.4 and 2.5.
+Subtasks [parallel]. OpenAI and Gemini moved to P1 fast follow.
 
-- [ ] 2.1 Add `src/lib/models.ts`: the 9 design models, cheapest model as default per provider, lowest effort, `maxOutput` of 4000, input limits with Google's from its docs, per-model thinking and effort settings. Test: each provider has exactly one default.
-- [ ] 2.2 Add `src/lib/text.ts`: `countWords`, `estimateTokens`, `splitParagraphs`, `matchParts`. Tests cover the 20-word and 200-word boundaries, no-space languages, and no part dropped by a split.
-- [ ] 2.3 Add `src/lib/providers/types.ts` (`ProviderAdapter`, `ProviderError`), `sse.ts`, and `anthropic.ts` with browser header, low effort, and refusal fallback. Tests map 401, 402, 403, 413, 429, 5xx, 404, the credit error, other 4xx, refusal, a `max_tokens` stop, a fetch `TypeError` online and offline, offline, 30s no first text, and a stream with no finish event to the right `kind`, and one small call each on `claude-sonnet-5-5` and `claude-opus-5-5`, run by hand and recorded in `proofs.md`, confirms the fallback request is accepted. If a model rejects it, remove `fallbacks` for that model.
-- [ ] 2.4 Add `src/lib/providers/openai.ts` on `/v1/responses` with `validateKey`. Tests cover text deltas, finish event, and status code mapping. Credit errors and refusals wait for the real-key proof.
-- [ ] 2.5 Add `src/lib/providers/gemini.ts` on `streamGenerateContent` with `x-goog-api-key`. Tests cover text deltas, finish event, status code mapping, 400 `API_KEY_INVALID` as `auth`, and no key in the URL. Credit errors and refusals wait for the real-key proof.
-- [ ] 2.6 Add `src/lib/prompts.ts`: prompts for Short, Medium, In-depth, ELI5, popup, part summary, merge, and chat, with content in delimiters, closing delimiters escaped, and wording aimed at the word caps. Test: page text cannot close the delimiter.
+- [x] 2.1 Add `src/lib/models.ts`: the 3 Claude models, cheapest model as default, lowest effort, `maxOutput` of 4000, input limits, per-model thinking and effort settings. Test: exactly one default.
+- [x] 2.2 Add `src/lib/text.ts`: `countWords`, `estimateTokens`, `splitParagraphs`, `matchParts`. Tests cover the 20-word and 200-word boundaries, no-space languages, and no part dropped by a split.
+- [x] 2.3 Add `src/lib/providers/types.ts` (`ProviderAdapter`, `ProviderError`), `sse.ts`, and `anthropic.ts` with browser header, low effort, and refusal fallback. Tests map 401, 402, 403, 413, 429, 5xx, 404, the credit error, other 4xx, refusal, a `max_tokens` stop, a fetch `TypeError` online and offline, offline, 30s no first text, and a stream with no finish event to the right `kind`, and one small call each on `claude-sonnet-5-5` and `claude-opus-5-5`, run by hand and recorded in `proofs.md`, confirms the fallback request is accepted. If a model rejects it, remove `fallbacks` for that model.
+- [x] 2.6 Add `src/lib/prompts.ts`: prompts for Short, Medium, In-depth, ELI5, popup, part summary, merge, and chat, with content in delimiters, closing delimiters escaped, and wording aimed at the word caps. Test: page text cannot close the delimiter.
 
 ## 3. Content reading and generation [serial, needs 1 and 2]
 
@@ -63,10 +61,11 @@ Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exi
 - 5.1 blocks 5.2, 5.3, 5.4.
 - 1.3 is extended by 5.2.
 
-## Before store release
-
-- [ ] Prove OpenAI and Gemini with real keys in `proofs.md`: streaming, finish events, credit errors, refusals, output limit stops, Google's input limits, first text time, and fix any adapter mismatch. Blocks the store upload.
 
 ## P1 fast follow
 
 - [ ] Add `src/lib/youtube.ts`: `MAIN` world caption read with video ID check, transcript panel read, per the design's YouTube flow. Tests on saved fixtures return text, no tracks, and read failure. Add the "Couldn't read the transcript" failure to the fake provider and end-to-end tests. Include 5 live YouTube videos in `npm run eval`.
+- [ ] Add `src/lib/providers/openai.ts` on `/v1/responses` with `validateKey` and `store: false`. Tests cover text deltas, finish event, and status code mapping. Credit errors and refusals wait for the real-key proof.
+- [ ] Add `src/lib/providers/gemini.ts` on `streamGenerateContent` with `x-goog-api-key`. Tests cover text deltas, finish event, status code mapping, 400 `API_KEY_INVALID` as `auth`, and no key in the URL. Credit errors and refusals wait for the real-key proof.
+- [ ] Add the 6 OpenAI and Google models to `src/lib/models.ts`, per the design, and the provider dropdown with one key per provider (FR5, FR9).
+- [ ] Prove OpenAI and Gemini with real keys in `proofs.md`: streaming, finish events, credit errors, refusals, output limit stops, Google's input limits, first text time, and fix any adapter mismatch. Blocks shipping those providers.

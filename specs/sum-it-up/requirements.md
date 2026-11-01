@@ -161,8 +161,11 @@ Built after the core website use cases ship. Requirements stay as written, and t
 - FR34, FR35: YouTube video summaries from transcripts.
 - FR46 row "Couldn't read the transcript".
 - YouTube pages in the NFR4 and NFR5 test sets, and YouTube transcript requests in NFR10.
+- FR5 and FR9: OpenAI and Google Gemini as providers, the provider dropdown, and one key per provider.
 
 Until then, YouTube pages are treated like other sites with video under FR36: page text only, with "Video not included in this summary". Reason: YouTube already offers its own video summaries.
+
+Until then, Anthropic is the only provider, with one saved key and no provider choice. The FR46 links that open "the provider dropdown" open the top dropdown in the panel, which holds the model and key.
 
 ## Out of Scope
 
