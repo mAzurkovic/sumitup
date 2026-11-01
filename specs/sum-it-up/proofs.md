@@ -63,6 +63,20 @@ A later `claude-haiku-5-5` check at low effort measured 1215 to 3583ms. NFR1 hol
 
 A later `claude-haiku-5-5` check at low effort also tried low output limits: `max_tokens` 300 stopped once with no text, and 500 stopped once at 91 words. Thinking counts toward the limit, so the design uses 4000.
 
+### Refusal fallback request
+
+Run 2026-11-01 through the real adapter, from Node on this machine and not the extension worker, with `anthropic-version: 2026-10-21`, effort low, and `max_tokens` 4000. One short question, run twice, because the first run's output was hidden.
+
+| Model | Fallback sent | Result | First text, second run |
+|---|---|---|---|
+| `claude-sonnet-5-5` | `fallbacks: "default"`, `anthropic-beta: server-side-fallback-2026-07-01` | PASS, accepted, text streamed | 1522ms |
+| `claude-opus-5-5` | Same | PASS, accepted, text streamed | 1018ms |
+| `claude-haiku-5-5` | None | PASS, text streamed | 1045ms |
+
+- `fallbacks` stays on both models.
+- This proves the request is accepted. No refusal was triggered, so a real switch to the fallback model is not proven. A test with a scripted stream covers the event order from the API docs.
+- `validateKey` passed with the real key, and a bad key mapped to `auth`.
+
 ### Failures and fixes
 
 - P1. Bad Gemini key gives 400, not 401 or 403, so FR46 shows the wrong message. Fix: map Gemini `API_KEY_INVALID` to `auth`.
