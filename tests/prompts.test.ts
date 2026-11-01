@@ -103,8 +103,14 @@ describe('summary wording', () => {
     expect(partPrompt('x').system).toMatch(/language of the content/i);
   });
 
-  it('tells the part summary to keep facts for the later merge, with no word cap of its own', () => {
+  it('tells the part summary to keep facts for the later merge', () => {
     expect(partPrompt('x').system).toMatch(/keep .*facts/i);
+  });
+
+  it('holds the part summary well under the 4000 token output limit, which thinking shares', () => {
+    const words = wordCap(partPrompt('x'));
+    expect(words).toBeGreaterThan(0);
+    expect(words * 1.5).toBeLessThan(4000 / 2);
   });
 });
 

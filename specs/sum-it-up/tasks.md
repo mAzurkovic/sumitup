@@ -12,12 +12,12 @@ Proofs run first. A failed proof stops the build and goes back to the product ow
 - [x] 1.2 Add `src/lib/theme.css` with the design's variables, `src/assets/logo.svg` copied from `specs/sum-it-up/mocks/logo.svg`, and `scripts/build-icons` for 16, 32, 48, 128px PNGs. Toolbar shows the icon, and the 16px result is reviewed by eye.
 - [x] 1.3 Add `.github/workflows/ci.yml` running `tsc`, Vitest, and `wxt build` on pull requests, with the Playwright step added in 5.2. Workflow passes on a test pull request.
 - [x] 1.4 Prove panel opening in `specs/sum-it-up/proofs.md`: `sidePanel.open` from a content script message, toolbar open and close with no `await` before `open`, and per-tab enablement. Results recorded, and a failure on FR42 or FR44 stops the build.
-- [x] 1.5 Prove direct provider calls in `proofs.md`, using the Anthropic key from `.env.local`: worker fetch to all 3 providers, Claude streaming and first text time, Anthropic browser header, key check by listing models, `x-goog-api-key`. Results recorded, and each failure has a named fix. Real-key proof for OpenAI and Gemini is in Before store release.
+- [x] 1.5 Prove direct provider calls in `proofs.md`, using the Anthropic key from `.env.local`: worker fetch to all 3 providers, Claude streaming and first text time, Anthropic browser header, key check by listing models, `x-goog-api-key`. Results recorded, and each failure has a named fix. Real-key proof for OpenAI and Gemini is in P1 fast follow.
 - [x] 1.6 Prove the YouTube read in `proofs.md` on 5 live YouTube videos: caption track read after in-page navigation, track fetch, and transcript panel fallback. Results recorded with how often the fallback ran.
 
-## 2. Providers and text tools [parallel]
+## 2. Claude provider and text tools [parallel]
 
-Subtasks [parallel]. OpenAI and Gemini moved to P1 fast follow.
+Subtasks [parallel]. OpenAI and Gemini, first planned as 2.4 and 2.5, moved to P1 fast follow.
 
 - [x] 2.1 Add `src/lib/models.ts`: the 3 Claude models, cheapest model as default, lowest effort, `maxOutput` of 4000, input limits, per-model thinking and effort settings. Test: exactly one default.
 - [x] 2.2 Add `src/lib/text.ts`: `countWords`, `estimateTokens`, `splitParagraphs`, `matchParts`. Tests cover the 20-word and 200-word boundaries, no-space languages, and no part dropped by a split.
@@ -26,11 +26,13 @@ Subtasks [parallel]. OpenAI and Gemini moved to P1 fast follow.
 
 ## 3. Content reading and generation [serial, needs 1 and 2]
 
-- [ ] 3.1 Add `src/lib/session.ts`: `tab:<tabId>` state in `storage.session`, summary cache keyed by URL, scope, level, model, and eviction of least recently used `source`. Tests cover the cache key, a stored refusal staying `refused`, a new selection clearing old selection summaries, eviction keeping summaries and chat, and cleanup.
-- [ ] 3.2 Add `src/entrypoints/extract.ts`: Readability on a cloned document, word count, video flag, PDF detection, with Readability out of the content script bundle. Fixture pages return main content without navigation, ads, footers, or comments.
-- [ ] 3.4 Add `src/lib/summarize.ts`: single call, split at 80% of the limit, 3 parts at a time, streamed merge, abort, and no retries. Tests cover confirm threshold, all parts used, one part failing, and partial text kept on abort.
-- [ ] 3.5 Add `src/lib/chat.ts`: grounded prompt, `matchParts` above the limit, fixed reply with no call on no match, oldest-first history trim. Tests cover under and over the limit, and no-match makes zero calls.
-- [ ] 3.6 Extend `src/entrypoints/background.ts` with the core: `setAccessLevel` on install, key and settings handlers, `panel:<tabId>` and `selection` ports, `tabId` from `sender.tab.id`, abort on disconnect. Tests: keys never reach the `selection` port, and disconnect stores `incomplete` (FR77).
+Number 3.3 is not used.
+
+- [x] 3.1 Add `src/lib/session.ts`: `tab:<tabId>` state in `storage.session`, summary cache keyed by URL, scope, level, model, and eviction of least recently used `source`. Tests cover the cache key, a stored refusal staying `refused`, a new selection clearing old selection summaries, eviction keeping summaries and chat, and cleanup.
+- [x] 3.2 Add `src/entrypoints/extract.ts`: Readability on a cloned document, word count, video flag, PDF detection, with Readability out of the content script bundle. Fixture pages return main content without navigation, ads, footers, or comments.
+- [x] 3.4 Add `src/lib/summarize.ts`: single call, split at 80% of the limit, 3 parts at a time, streamed merge, abort, and no retries. Add a word target to the part summary prompt, well under the 4000 token output limit. Tests cover confirm threshold, all parts used, one part failing, partial text kept on abort, and the part summary target.
+- [x] 3.5 Add `src/lib/chat.ts`: grounded prompt, `matchParts` above the limit, fixed reply with no call on no match, oldest-first history trim. Tests cover under and over the limit, and no-match makes zero calls.
+- [ ] 3.6 Extend `src/entrypoints/background.ts` with the core: `setAccessLevel` on install, key and settings handlers, `panel:<tabId>` and `selection` ports, `tabId` from `sender.tab.id`, abort on disconnect. A key with characters a request header cannot carry is rejected as `auth`, not `unavailable`. Remove the URL fragment before building a summary key, and store an `AbortError` as `incomplete`. Tests: keys never reach the `selection` port, disconnect stores `incomplete` (FR77), and a key with invalid header characters is not stored.
 
 ## 4. Worker flows and UI [serial, needs 3]
 
@@ -38,7 +40,7 @@ Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exi
 
 - [ ] 4.1 Add toolbar and navigation handling to `background.ts`: `action.onClicked` calling `setOptions` and `open` before any `await`, a pinned icon checked by hand to close the panel, a real browser restart checked by hand to leave a never-opened tab's panel disabled, with both recorded in `proofs.md`, fragment-only URL ignored, reload clears that URL's cache. Tests cover FR57 and FR60 URL cases.
 - [ ] 4.2 Add `src/entrypoints/content/`: closed Shadow DOM button and popup, 20-word rule, editable area skip, `isTrusted` check, `textContent` rendering, "More", Esc and outside click. Matches mocks 05 and 06, and a script-dispatched click makes no call.
-- [ ] 4.3 Add `Header`, `LevelSelect`, `ModelMenu`, `KeySetup` in `src/entrypoints/sidepanel/`, with labels above dropdowns, `appearance: base-select`, Popover API, masked key, Delete. Matches mocks 01 and 04, including dark theme.
+- [ ] 4.3 Add `Header`, `LevelSelect`, `ModelMenu`, `KeySetup` in `src/entrypoints/sidepanel/`, with labels above dropdowns, `appearance: base-select`, Popover API, masked key, Delete. Matches mocks 01 and 04, including dark theme, except that the provider dropdown in the mocks waits for P1.
 - [ ] 4.4 Add `SummaryCard`, `StatusCard`, `ScopeLink`, `ModelSwitchAction`, `Markdown.tsx`. Matches mocks 03, 07, 08, and a test confirms `Markdown` output has no raw HTML, images, or live links.
 - [ ] 4.5 Add `ScrollColumn`, `ChatMessages`, `ChatInput`, summary divider. Matches mocks 02 and 09: box fixed in every state, disabled until a summary is on screen, newest message scrolls into view.
 - [ ] 4.6 Add `src/entrypoints/sidepanel/App.tsx`: the 10-state panel reducer, port connection with reconnect, `?tabId=` read, restore on reopen, error banner over an existing summary. Tests cover every transition in the design's state diagram, a URL change from every state, and reopening on a stored refusal shows no Retry.
@@ -49,7 +51,7 @@ Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exi
 - [ ] 5.2 Add `playwright.config.ts` and `tests/e2e/summary.spec.ts`, with `--load-extension`: setup, page summary, levels, cache, Stop, panel close, per-tab, navigation, reload. Tests pass, and the step is added to `ci.yml`.
 - [ ] 5.3 Add `tests/e2e/selection-chat.spec.ts`: 20-word rule, popup, "More", no-key flow, scope switch, chat, scrolling, long page confirm. Tests pass.
 - [ ] 5.4 Add `tests/e2e/failures-privacy.spec.ts`: every FR46 message and action except the P1 transcript row, FR47, FR48, NFR2, NFR3, and NFR11 with a network log. Tests pass.
-- [ ] 5.5 Add `evals/pages.json` (50 pages), 5 prompt injection pages, 20 off-content questions, and `npm run eval` reporting NFR1, NFR4, NFR5 review sheet, NFR10, NFR12, FR64, FR76. Report runs on default models with keys from `.env.local`.
+- [ ] 5.5 Add `evals/pages.json` (50 pages), 5 prompt injection pages, 20 off-content questions, and `npm run eval` reporting NFR1, NFR4, NFR5 review sheet, NFR10, NFR12, FR64, FR76. Report runs on the default model with the key from `.env.local`.
 - [ ] 5.6 Add `.github/workflows/release.yml` building `wxt zip` on a version tag and attaching it to a GitHub Release, plus `store/` listing text, NFR14 disclosure, and privacy policy. Test tag produces a zip that loads in Chrome.
 
 ## Dependencies
@@ -61,6 +63,12 @@ Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exi
 - 5.1 blocks 5.2, 5.3, 5.4.
 - 1.3 is extended by 5.2.
 
+## Review follow-ups
+
+- [ ] Make the delimiter in `prompts.ts` safe against invisible characters inside the closing tag, and add such a page to the 5.5 injection pages.
+- [ ] Make `estimateTokens` count Chinese, Japanese, and Korean text correctly, so very long pages in those languages reach the long page confirm. Needs product owner approval, because it changes the design's 2.5 ratio.
+- [ ] Stop counting whitespace-only stream text as text in `sse.ts`, and add a test for the `if (finished) break;` path.
+- [ ] Add one `claude-sonnet-5-5` call from the extension worker to the 5.5 eval, because the fallback request has only run from Node.
 
 ## P1 fast follow
 
