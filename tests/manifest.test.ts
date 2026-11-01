@@ -54,4 +54,10 @@ describe('built manifest', () => {
   it('accepts no messages from web pages', () => {
     expect(manifest.externally_connectable).toBeUndefined();
   });
+
+  it('keeps the article reader out of the script that loads on every page', () => {
+    const readerMarker = '_grabArticle';
+    expect(readFileSync('dist/chrome-mv3/extract.js', 'utf8')).toContain(readerMarker);
+    expect(readFileSync('dist/chrome-mv3/content-scripts/content.js', 'utf8')).not.toContain(readerMarker);
+  });
 });

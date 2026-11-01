@@ -26,7 +26,7 @@ Paths under `src/`.
 | Service worker | `entrypoints/background.ts` | Toolbar clicks, tab tracking, ports, all provider calls, key access |
 | Selection UI | `entrypoints/content/` | Button and popup in a closed Shadow DOM, top frame only, no framework (mocks 05, 06) |
 | Side panel | `entrypoints/sidepanel/` | React app, one instance per tab (mocks 01 to 04, 07 to 09) |
-| Extractor | `entrypoints/extract.ts` | Unlisted script injected on click. Readability on a cloned document, word count, video flag |
+| Extractor | `entrypoints/extract.ts` | Unlisted script injected on click. Readability on a cloned document, word count, video flag. Removes navigation, ads, and comments first by exact markers only: `<nav>`, known ad classes and ad networks, and a clearly titled last section. Deleting real content is worse than keeping a stray ad, so other names are not chased. Misses are measured by the NFR5 eval |
 | YouTube reader (P1) | `lib/youtube.ts` | Transcript panel read. All YouTube selectors live here |
 | Provider adapter | `lib/providers/anthropic.ts`, with `openai.ts` and `gemini.ts` in P1 | One fetch and stream parser per provider |
 | Model registry | `lib/models.ts` | Fixed model list, defaults, input limits, per-model request settings |
@@ -118,11 +118,11 @@ Minimal and modern, per mock 10. `lib/theme.css` holds the variables, used by th
   - `settings`: `{provider, modelByProvider, level}`. `provider` is always `anthropic` until P1.
 - `storage.session`, memory only, default restricted, cleared on browser restart (FR66):
   - `tab:<tabId>`: `{url, scope, selectionText?, summaries, chat[], source?}`.
-  - `summaries`: map of `<url>|<scope>|<level>|<model>` to `{text, status: complete|incomplete|refused}` (FR56).
+  - `summaries`: map of `<url>|<scope>|<level>|<model>` to `{text, status: complete|incomplete|refused}` (FR56). `<url>` has no fragment, because a fragment change is not navigation (FR60). The worker removes it before it builds the key.
   - `chat[]`: `{role, text}`.
   - `source`: `{kind: page|transcript|selection, text, videoExcluded}`.
 - A new selection deletes the tab's `selection` summaries, because the cache key does not identify the selected text.
-- Limits: 10 MB session quota. Over quota: drop `source` text from the least recently used tab, keep summaries and chat, re-extract on next need at no token cost.
+- Limits: 10 MB session quota. Over quota: drop `source` text from the least recently used tab, keep summaries and chat, re-extract on next need at no token cost. Only a write counts as use, so a tab that was only read can lose its `source` first. A selection source comes back from `selectionText`, not from a page extract.
 - Cleanup: `tabs.onRemoved` deletes the tab entry (FR56, FR65). Extension update clears session data. Accepted.
 
 ## Models
@@ -199,7 +199,7 @@ sequenceDiagram
 - 2. Worker reads content: `scripting.executeScript` runs `extract.ts`. YouTube pages use this path until the P1 read ships. Injection failure or `contentType` PDF means restricted (FR33).
 - 3. Under 200 words: `noContent`, no call (FR26). Over the model limit: `confirmLong` with token estimate (FR27).
 - 4. Worker streams from the adapter, sends `delta` to the panel, saves text to session as it arrives.
-- 5. Stop or port disconnect aborts the fetch. Text so far saved as `incomplete` (FR32, FR77). No auto-retry anywhere (FR48).
+- 5. Stop or port disconnect aborts the fetch. Text so far saved as `incomplete` (FR32, FR77). The library code passes the abort up as `AbortError`, and the worker turns that into `incomplete`, not an FR46 failure. No auto-retry anywhere (FR48).
 
 ### Long content (FR27, FR28)
 

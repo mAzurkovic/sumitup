@@ -46,7 +46,7 @@ UI mocks: [mocks/index.html](mocks/index.html). Mocks validate layout, flow, and
 - FR22. Collapse: the chevron in the panel MUST close the panel. Reopening MUST show the same summary and chat with no new API call.
 - FR23. Per tab: the panel MUST open only on the tab where the user opened it. Other tabs MUST stay closed until the user opens the panel there.
 - FR24. Heading: the panel MUST show "Page summary" for a page summary and "Selected text summary" for a selection summary.
-- FR25. Content scope: page summaries MUST use the page's main content. Navigation, ads, footers, and comments MUST be excluded.
+- FR25. Content scope: page summaries MUST use the page's main content. Navigation, ads, footers, and comments MUST be excluded. Test: NFR5.
 - FR26. Too little text: when extractable content is under 200 words, the panel MUST show "Not enough text to summarize" and make no API call.
 - FR27. Long content: when content exceeds the selected model's input limit, the extension MUST show a confirm prompt with an estimated token count before any API call.
 - FR28. Long content confirmed: the extension MUST split the content, summarize all parts, and merge them into one summary.

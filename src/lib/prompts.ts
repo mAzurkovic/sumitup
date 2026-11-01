@@ -44,7 +44,7 @@ export function popupPrompt(selection: string): Prompt {
 
 export function partPrompt(part: string): Prompt {
   return {
-    system: `This is one part of a longer page. Summarize it, and keep its main facts, names, and numbers for a later merge.\n${SUMMARY_RULES}`,
+    system: `This is one part of a longer page. Summarize it, and keep its main facts, names, and numbers for a later merge. Use at most 1000 words.\n${SUMMARY_RULES}`,
     messages: asUserMessage(part),
   };
 }
