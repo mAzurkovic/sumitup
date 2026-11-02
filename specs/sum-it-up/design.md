@@ -117,11 +117,11 @@ Minimal and modern, per mock 10. `lib/theme.css` holds the variables, used by th
   - `keys`: `{anthropic?}` strings. P1 adds `openai` and `gemini`.
   - `settings`: `{provider, modelByProvider, level}`. `provider` is always `anthropic` until P1.
 - `storage.session`, memory only, default restricted, cleared on browser restart (FR66):
-  - `tab:<tabId>`: `{url, scope, selectionText?, summaries, chat[], source?}`.
+  - `tab:<tabId>`: `{url, scope, selectionText?, summaries, chat[], source?, shownModelId?}`. `shownModelId` is the model whose summary the panel shows, so a later model switch keeps that summary on screen.
   - `summaries`: map of `<url>|<scope>|<level>|<model>` to `{text, status: complete|incomplete|refused}` (FR56). `<url>` has no fragment, because a fragment change is not navigation (FR60). The worker removes it before it builds the key.
   - `chat[]`: `{role, text}`.
   - `source`: `{kind: page|transcript|selection, text, videoExcluded}`.
-- A new selection deletes the tab's `selection` summaries, because the cache key does not identify the selected text.
+- A new selection deletes the tab's `selection` summaries, because the cache key does not identify the selected text. It happens when `openPanel` starts a selection in the panel. The popup alone changes no tab state.
 - Limits: 10 MB session quota. Over quota: drop `source` text from the least recently used tab, keep summaries and chat, re-extract on next need at no token cost. Only a write counts as use, so a tab that was only read can lose its `source` first. A selection source comes back from `selectionText`, not from a page extract.
 - Cleanup: `tabs.onRemoved` deletes the tab entry (FR56, FR65). Extension update clears session data. Accepted.
 
@@ -172,6 +172,10 @@ Runtime messages:
 - Panel to worker: port `panel:<tabId>`. Sends `summarize`, `retry`, `stop`, `chat`, `setLevel`, `setModel`, `saveKey`, `deleteKey`. Receives `state`, `delta`, `done`, `error`, `navigated`.
 - Content script to worker: port `selection`. Sends `summarizeSelection {text}`, `stop`. Receives `delta`, `done`, `error`. Message `openPanel {text}` for "More" and no key.
 - Worker takes `tabId` from `sender.tab.id`, never from the message. Content script never receives keys.
+- A content script that names its port `panel:<tabId>` is disconnected, so only extension pages reach the key and settings handlers.
+- `state` also carries the last 4 key characters, model, level, stored summary, chat, and the token estimate when a long page needs a confirm. `summarize` takes `confirmed` for Continue and `wholePage` for `ScopeLink`. `delta` and `done` name their stream, `summary` or `chat`. `error` carries a `kind`: a `ProviderError` kind, or `noKey`, `restricted`, or `noContent`. `summaryModelId` names the model that wrote the summary, so after a model switch the panel keeps it on screen and offers "Summarize with <model>".
+- Each tab has one run at a time. `summarize`, `retry`, `chat`, and `setLevel` end the run in progress and start theirs once it has saved its text. A run still reading the page counts, and so does one still waiting for its turn. `stop` ends it. `deleteKey` ends every run, in all tabs and the popup. `setModel` and `saveKey` do not end a run. Stop before any text stores nothing, and the worker still sends `done` with `incomplete`, which the panel shows as `ready` because there is no text. Reopening then starts fresh.
+- The panel is trusted input. It offers only valid levels and models, keeps chat disabled until a summary is on screen, and offers no Retry on a refusal. The worker does not check these again. `setLevel` answers like `summarize`: `state` for a cached summary or a long page confirm, `error` for a short page or a failure, and `delta` then `done` otherwise.
 
 ## Flows
 
@@ -198,7 +202,7 @@ sequenceDiagram
 - 1. Panel sends `summarize`. Worker checks the key, then the cache by URL, scope, level, model.
 - 2. Worker reads content: `scripting.executeScript` runs `extract.ts`. YouTube pages use this path until the P1 read ships. Injection failure or `contentType` PDF means restricted (FR33).
 - 3. Under 200 words: `noContent`, no call (FR26). Over the model limit: `confirmLong` with token estimate (FR27).
-- 4. Worker streams from the adapter, sends `delta` to the panel, saves text to session as it arrives.
+- 4. Worker streams from the adapter, sends `delta` to the panel, and saves text to session as it arrives, at most every 500ms and as `incomplete` until it finishes, so a stopped worker still leaves the text. If the worker stops mid-stream, up to the last 500ms of text can be missing from the saved copy. Stop and closing the panel save all of it. An extension API call every 20s keeps the worker alive during a run, because part summaries send no messages.
 - 5. Stop or port disconnect aborts the fetch. Text so far saved as `incomplete` (FR32, FR77). The library code passes the abort up as `AbortError`, and the worker turns that into `incomplete`, not an FR46 failure. No auto-retry anywhere (FR48).
 
 ### Long content (FR27, FR28)
