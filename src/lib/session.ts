@@ -21,6 +21,8 @@ export interface TabState {
   summaries: Record<string, Summary>;
   chat: ChatMessage[];
   source?: Source;
+  /** The model whose summary the panel shows, kept across a model switch. */
+  shownModelId?: string;
   usedAt: number;
 }
 
