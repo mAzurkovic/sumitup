@@ -6,6 +6,10 @@ describe('model registry', () => {
     expect(MODELS.map((model) => model.id)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']);
   });
 
+  it('names each model for the menu', () => {
+    expect(MODELS.map((model) => model.name)).toEqual(['Claude Haiku 5.5', 'Claude Sonnet 5.5', 'Claude Opus 5.5']);
+  });
+
   it('marks exactly one default', () => {
     expect(MODELS.filter((model) => model.isDefault)).toHaveLength(1);
   });

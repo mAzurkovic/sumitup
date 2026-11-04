@@ -3,6 +3,7 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   srcDir: 'src',
   outDir: 'dist',
+  modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Sum it up!',
     description: 'Summarize pages and selected text with your own AI key.',

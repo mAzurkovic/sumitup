@@ -33,6 +33,7 @@ describe('theme', () => {
     ['--line', '#e4e4e7', '#2e2e33'],
     ['--soft', '#f4f4f5', '#27272a'],
     ['--accent', '#166534', '#86efac'],
+    ['--danger', '#b91c1c', '#fca5a5'],
   ])('%s has its light and dark value', (name, lightValue, darkValue) => {
     expect(light).toContain(`${name}: ${lightValue};`);
     expect(dark).toContain(`${name}: ${darkValue};`);
