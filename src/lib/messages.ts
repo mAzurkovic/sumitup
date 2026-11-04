@@ -34,7 +34,8 @@ export type PanelMessage =
   | { type: 'state'; state: PanelState }
   | { type: 'delta'; stream: StreamName; text: string }
   | { type: 'done'; stream: StreamName; status: 'complete' | 'incomplete' }
-  | { type: 'error'; stream?: StreamName; kind: WorkerErrorKind };
+  | { type: 'error'; stream?: StreamName; kind: WorkerErrorKind }
+  | { type: 'navigated' };
 
 export type SelectionMessage =
   | { type: 'delta'; text: string }

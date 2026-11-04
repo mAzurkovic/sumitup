@@ -107,7 +107,7 @@ UI mocks: [mocks/index.html](mocks/index.html). Mocks validate layout, flow, and
 - FR54. Remembered level: the last level used MUST persist across pages and browser restarts.
 - FR55. Level switch: switching level MUST generate a summary at the new level, unless FR56 applies.
 - FR56. Cache: summaries MUST be cached per URL, level, and model until the tab closes. A cached result MUST display with no API call.
-- FR57. Reload: reloading a page MUST discard that URL's cached summaries.
+- FR57. Reload: reloading a page MUST keep that URL's cached summaries, because the content has most likely not changed. Retry makes a new summary.
 
 ### Navigation
 

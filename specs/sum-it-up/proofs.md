@@ -18,8 +18,22 @@ Run 2026-10-31 on Chrome for Testing 156 (Playwright 1.64.1), macOS, with a thro
 | Panel calling `sidePanel.close` from a port message | PASS, including after stopping the worker with the panel open, where it reconnects its port |
 | Global `setOptions({enabled: false})` at every worker start, with a panel open. Not tested across a real browser restart. | PASS on 156 and 141, open panel stays open and a new tab can still open one |
 
+### Toolbar and restart, checked by hand
+
+Run 2026-11-04 by the product owner in Chrome, with the real build loaded unpacked and the icon pinned.
+
+| Case | Result |
+|---|---|
+| Pinned icon click on a web page | PASS, panel opens |
+| Second click on the pinned icon | PASS, panel closes |
+| New tab on another site | PASS, no panel |
+| Real browser restart, then Chrome's own side panel list on a tab that never opened the panel, with a default panel in the manifest | FAIL, "Sum it up!" was in the list |
+| Same restart check, with no default panel in the manifest | PASS, not in the list |
+
+- With a default panel, the extension's panel is on every tab, and after a restart Chrome listed it before the worker turned it off. The build now has no default panel, so a toolbar click turns it on for that tab only.
+
 - FR42 and FR44 hold. No requirement change.
-- FR20 cannot work, because a toolbar click with the panel open never reaches the extension. FR20 is removed, and the panel's own button starts a summary. A pinned icon was not tested.
+- FR20 cannot work, because a toolbar click with the panel open never reaches the extension. FR20 is removed, and the panel's own button starts a summary.
 - Playwright's page evaluation counts as a user gesture. Tests that check gestures need timers or real input.
 - Page-click cases use Playwright input through DevTools. Toolbar opens use real OS clicks. The close test sends the message directly, because the log from the manual session cannot show which control closed the panel.
 

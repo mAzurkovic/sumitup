@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 type Manifest = {
@@ -9,7 +9,7 @@ type Manifest = {
   permissions: string[];
   host_permissions: string[];
   action: object;
-  side_panel: { default_path: string };
+  side_panel?: object;
   externally_connectable?: object;
   content_scripts: [{ matches: string[]; run_at: string; all_frames?: boolean }];
   icons: Record<string, string>;
@@ -34,9 +34,10 @@ describe('built manifest', () => {
     expect(manifest.host_permissions).toEqual(['<all_urls>']);
   });
 
-  it('has a toolbar action and a side panel page', () => {
+  it('has a toolbar action and a panel page, but no panel on every tab by default', () => {
     expect(manifest.action).toBeDefined();
-    expect(manifest.side_panel.default_path).toBe('sidepanel.html');
+    expect(manifest.side_panel).toBeUndefined();
+    expect(existsSync('dist/chrome-mv3/sidepanel.html')).toBe(true);
   });
 
   it('runs one content script at idle in the top frame of every site', () => {

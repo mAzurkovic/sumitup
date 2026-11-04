@@ -108,7 +108,7 @@ Minimal and modern, per mock 10. `lib/theme.css` holds the variables, used by th
 - Permissions: `sidePanel`, `storage`, `scripting`.
 - Host permissions: `<all_urls>`. Needed for FR38 on all sites. Shows Chrome's "read and change all your data" install warning and draws closer store review.
 - Content script: `<all_urls>`, `document_idle`, `all_frames: false`.
-- Panel disabled by default: `sidePanel.setOptions({enabled: false})` on every worker start, because Chrome resets it on browser restart. An `onStartup` listener is what makes Chrome start the worker on a browser start, so it stays even though the call also runs directly. Enabled per tab with `sidePanel.setOptions({tabId, path, enabled})`.
+- No default panel: the build removes `side_panel.default_path` from the manifest. A default panel is on every tab, and after a browser restart Chrome listed it on tabs where the user never opened it, before the worker could turn it off. With no default, a toolbar click calls `sidePanel.setOptions({tabId, path, enabled})` for that tab only.
 - No `externally_connectable`. No remote code.
 
 ## Data Model
@@ -193,7 +193,8 @@ sequenceDiagram
   Panel->>Panel: state exists: restore. Otherwise: start
 ```
 
-- Panel open: Chrome closes it on a toolbar click, with no `action.onClicked` event. Seen from the extensions menu. A pinned icon is checked in the toolbar task.
+- Panel open: Chrome closes it on a toolbar click, with no `action.onClicked` event. Seen from the extensions menu. A pinned icon closes it the same way (proofs.md, 2026-11-04).
+- A click on a restricted page, such as `chrome://` or a PDF, opens the panel like any other. Its summary request then gets `restricted`, and the panel shows the FR46 message.
 - Open panels hold a port and reconnect when it drops, so a restarted worker sees them again.
 - Chevron calls `sidePanel.close`. Other tabs stay disabled (FR23).
 
@@ -231,7 +232,7 @@ sequenceDiagram
 ### Navigation (FR57 to FR61)
 
 - `tabs.onUpdated` with `url`: compare with stored URL minus fragment. Different: clear summary and chat view, send `navigated` (mock 08). Fragment only: ignore.
-- `status: loading` with the same URL: reload, delete that URL's summaries (FR57).
+- A reload keeps the cache, chat, and page text (FR57). The worker does not watch for reloads. Chrome reports a same-URL `history.replaceState` like a reload, so watching would clear the cache on many sites.
 - Works for single-page apps, since `onUpdated` reports history changes.
 
 ### YouTube transcript, P1 (FR34, FR35, FR46 row)
