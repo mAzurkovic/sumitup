@@ -1,11 +1,27 @@
 import type { Browser } from 'wxt/browser';
 import { askChat } from '@/lib/chat';
-import type { PanelMessage, PanelRequest, PanelState, SelectionMessage, SelectionRequest } from '@/lib/messages';
+import type {
+  OpenPanelMessage,
+  PanelMessage,
+  PanelRequest,
+  PanelState,
+  SelectionMessage,
+  SelectionRequest,
+} from '@/lib/messages';
 import { defaultModel, MAX_OUTPUT, MODELS, type Model } from '@/lib/models';
 import { popupPrompt, type Level } from '@/lib/prompts';
 import { anthropic } from '@/lib/providers/anthropic';
 import { ProviderError } from '@/lib/providers/types';
-import { readTab, removeTab, summaryKey, updateTab, type Scope, type Source, type TabState } from '@/lib/session';
+import {
+  readTab,
+  removeTab,
+  startSelection,
+  summaryKey,
+  updateTab,
+  type Scope,
+  type Source,
+  type TabState,
+} from '@/lib/session';
 import { isOverLimit, summarize } from '@/lib/summarize';
 import { countWords, estimateTokens } from '@/lib/text';
 import type { Extraction } from './extract';
@@ -176,6 +192,10 @@ async function runSummary(
     if (isOverLimit(source.text, model) && !request.confirmed) {
       return post({ type: 'state', state: await step(panelState(tabId, estimateTokens(source.text))) });
     }
+
+    // Tells the panel what this source holds, such as a left-out video, with no summary to replace its spinner.
+    const { summary: _summary, summaryModelId: _summaryModelId, ...state } = await step(panelState(tabId));
+    post({ type: 'state', state });
 
     save = (status) =>
       updateTab(tabId, (current) => ({
@@ -358,11 +378,34 @@ function followTab(tabId: number, change: Browser.tabs.OnUpdatedInfo): Promise<v
   return change.url ? followNavigation(tabId, withoutFragment(change.url)) : Promise.resolve();
 }
 
+/** Chrome allows open() only inside the user's click, so neither call may wait for anything first. */
+function openPanelOn(tabId: number) {
+  browser.sidePanel.setOptions({ tabId, path: `sidepanel.html?tabId=${tabId}`, enabled: true });
+  browser.sidePanel.open({ tabId }).catch(console.error);
+}
+
 function openPanelFromToolbar(tab: Browser.tabs.Tab) {
-  if (tab.id === undefined) return;
-  // Chrome allows open() only inside the click, so neither call may wait for anything first.
-  browser.sidePanel.setOptions({ tabId: tab.id, path: `sidepanel.html?tabId=${tab.id}`, enabled: true });
-  browser.sidePanel.open({ tabId: tab.id }).catch(console.error);
+  if (tab.id !== undefined) openPanelOn(tab.id);
+}
+
+/** A panel that opens now asks for the summary itself. One already open is told the scope changed, and gets it. */
+async function summarizeInOpenPanels(tabId: number): Promise<void> {
+  const panels = openPanels.get(tabId);
+  if (!panels?.size) return;
+  const post: Post<PanelMessage> = (message) => panels.forEach((panelPost) => panelPost(message));
+  post({ type: 'state', state: await panelState(tabId) });
+  await startRun(`panel:${tabId}`, (signal) => runSummary(post, tabId, {}, signal));
+}
+
+function openPanelForSelection(message: unknown, sender: Browser.runtime.MessageSender) {
+  const { type, text } = (message ?? {}) as Partial<OpenPanelMessage>;
+  const tab = sender.tab;
+  if (type !== 'openPanel' || typeof text !== 'string' || tab?.id === undefined || !tab.url) return;
+  const tabId = tab.id;
+  openPanelOn(tabId);
+  startSelection(tabId, withoutFragment(tab.url), text)
+    .then(() => summarizeInOpenPanels(tabId))
+    .catch(console.error);
 }
 
 async function runPopup(post: Post<SelectionMessage>, selection: string, signal: AbortSignal): Promise<void> {
@@ -405,6 +448,9 @@ export default defineBackground(() => {
     else connectPanel(port);
   });
   browser.action.onClicked.addListener(openPanelFromToolbar);
+  browser.runtime.onMessage.addListener((message, sender) => {
+    openPanelForSelection(message, sender);
+  });
   browser.tabs.onUpdated.addListener((tabId, change) => {
     followTab(tabId, change).catch(console.error);
   });

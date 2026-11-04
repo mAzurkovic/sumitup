@@ -41,3 +41,9 @@ export type SelectionMessage =
   | { type: 'delta'; text: string }
   | { type: 'done'; status: 'complete' | 'incomplete' }
   | { type: 'error'; kind: WorkerErrorKind };
+
+/** From the content script, for "More" and for a popup with no key. */
+export interface OpenPanelMessage {
+  type: 'openPanel';
+  text: string;
+}

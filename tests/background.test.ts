@@ -31,6 +31,7 @@ function fakeEvent<T extends unknown[]>() {
 
 let onConnect = fakeEvent<[never]>();
 let onClicked = fakeEvent<[{ id?: number }]>();
+let onMessage = fakeEvent<[unknown, { tab?: { id?: number; url?: string } }]>();
 let onUpdated = fakeEvent<[number, { url?: string; status?: string }, { id: number; url?: string }]>();
 const sidePanelOpen = vi.fn(async (_options: object) => undefined);
 
@@ -111,13 +112,14 @@ beforeEach(() => {
   fakeBrowser.reset();
   vi.clearAllMocks();
   onClicked = fakeEvent();
+  onMessage = fakeEvent();
   onUpdated = fakeEvent();
   sidePanelOpen.mockImplementation(async () => undefined);
   Object.assign(fakeBrowser, { sidePanel: { setOptions, open: sidePanelOpen }, scripting: { executeScript } });
   Object.assign(fakeBrowser.action, { onClicked });
   Object.assign(fakeBrowser.storage.local, { setAccessLevel });
   onConnect = fakeEvent<[never]>();
-  Object.assign(fakeBrowser.runtime, { getPlatformInfo, onConnect });
+  Object.assign(fakeBrowser.runtime, { getPlatformInfo, onConnect, onMessage });
   Object.assign(fakeBrowser.tabs, { get: tabsGet, onUpdated });
   tabsGet.mockResolvedValue({ id: TAB_ID, url: PAGE_URL });
   executeScript.mockResolvedValue(extracted());
@@ -274,6 +276,20 @@ describe('saving a key', () => {
 
 describe('page summary', () => {
   beforeEach(saveStoredKey);
+
+  it('tells the panel about a left-out video before the first text, with no summary', async () => {
+    stubProvider();
+    executeScript.mockResolvedValue(extracted(PAGE_TEXT, { hasVideo: true }));
+    const panel = openPanel();
+    await panel.next('state');
+    panel.send({ type: 'summarize' });
+    const firstText = await panel.next('delta');
+    const before = panel.messages.slice(0, panel.messages.indexOf(firstText));
+    const reported = stateOf(before.filter(({ type }) => type === 'state').at(-1)!);
+    expect(reported.videoExcluded).toBe(true);
+    expect(reported.summary).toBeUndefined();
+    expect(reported.summaryModelId).toBeUndefined();
+  });
 
   it('streams the text and stores it as complete', async () => {
     const calls = stubProvider(sseText([textDelta('Hello'), textDelta(' there'), stop('end_turn')]));
@@ -1213,6 +1229,77 @@ describe('toolbar click', () => {
     sidePanelOpen.mockRejectedValue(new Error('No active side panel'));
     onClicked.fire({ id: TAB_ID });
     await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
+  });
+});
+
+describe('opening the panel from the page', () => {
+  const SELECTED = 'The selected words about light reactions.';
+  // Earlier tests leave panels open on the shared tab, so these use a tab with none.
+  const LONE_TAB = 30;
+  const fromPage = (message: unknown, tab: { id?: number; url?: string } = { id: LONE_TAB, url: `${PAGE_URL}#part` }) =>
+    onMessage.fire(message, { tab });
+
+  it('enables and opens the panel on that tab before any wait', () => {
+    fromPage({ type: 'openPanel', text: SELECTED });
+    expect(setOptions).toHaveBeenCalledExactlyOnceWith({ tabId: LONE_TAB, path: `sidepanel.html?tabId=${LONE_TAB}`, enabled: true });
+    expect(sidePanelOpen).toHaveBeenCalledExactlyOnceWith({ tabId: LONE_TAB });
+  });
+
+  it('starts a selection for the page, without its fragment', async () => {
+    fromPage({ type: 'openPanel', text: SELECTED });
+    await vi.waitFor(async () =>
+      expect(await readTab(LONE_TAB)).toMatchObject({ url: PAGE_URL, scope: 'selection', selectionText: SELECTED, chat: [] }),
+    );
+  });
+
+  it('lets the panel that opens summarize the selection when it asks', async () => {
+    await saveStoredKey();
+    const calls = stubProvider();
+    fromPage({ type: 'openPanel', text: SELECTED });
+    await vi.waitFor(async () => expect((await readTab(LONE_TAB))?.scope).toBe('selection'));
+    expect(calls).toEqual([]);
+
+    const panel = connect(`panel:${LONE_TAB}`);
+    const state = stateOf(await panel.next('state'));
+    expect(state).toMatchObject({ scope: 'selection', chat: [] });
+    expect(state.summary).toBeUndefined();
+    panel.send({ type: 'summarize' });
+    await panel.next('done');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body.messages[0]!.content).toContain(SELECTED);
+    expect(calls[0]!.body.messages[0]!.content).not.toContain(PAGE_TEXT);
+    panel.close();
+  });
+
+  it('switches a panel already open to the selection and summarizes it', async () => {
+    await saveStoredKey();
+    const calls = stubProvider();
+    const panel = openPanel();
+    await panel.next('state');
+    fromPage({ type: 'openPanel', text: SELECTED }, { id: TAB_ID, url: PAGE_URL });
+    expect(stateOf(await panel.next('state', 2))).toMatchObject({ scope: 'selection', chat: [] });
+    expect(await panel.next('done')).toMatchObject({ stream: 'summary', status: 'complete' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body.messages[0]!.content).toContain(SELECTED);
+  });
+
+  it('logs a selection that cannot be stored', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(fakeBrowser.storage.session, 'set').mockRejectedValue(new Error('Storage is broken'));
+    fromPage({ type: 'openPanel', text: SELECTED });
+    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    ['another message', { type: 'other', text: SELECTED }, { id: LONE_TAB, url: PAGE_URL }],
+    ['no text', { type: 'openPanel' }, { id: LONE_TAB, url: PAGE_URL }],
+    ['no message', undefined, { id: LONE_TAB, url: PAGE_URL }],
+    ['no tab id', { type: 'openPanel', text: SELECTED }, { url: PAGE_URL }],
+    ['no tab URL', { type: 'openPanel', text: SELECTED }, { id: LONE_TAB }],
+  ])('ignores %s', async (_name, message, tab) => {
+    fromPage(message, tab);
+    expect(sidePanelOpen).not.toHaveBeenCalled();
+    expect(await readTab(LONE_TAB)).toBeUndefined();
   });
 });
 

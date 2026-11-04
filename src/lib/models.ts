@@ -2,6 +2,7 @@ export type Provider = 'anthropic';
 
 export interface Model {
   id: string;
+  name: string;
   provider: Provider;
   isDefault: boolean;
   inputLimit: number;
@@ -14,9 +15,9 @@ export interface Model {
 export const MAX_OUTPUT = 4000;
 
 export const MODELS: readonly Model[] = [
-  { id: 'claude-haiku-5-5', provider: 'anthropic', isDefault: true, inputLimit: 1_000_000, effort: 'low' },
-  { id: 'claude-sonnet-5-5', provider: 'anthropic', isDefault: false, inputLimit: 1_000_000, effort: 'low', refusalFallback: true },
-  { id: 'claude-opus-5-5', provider: 'anthropic', isDefault: false, inputLimit: 1_000_000, effort: 'low', refusalFallback: true },
+  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', provider: 'anthropic', isDefault: true, inputLimit: 1_000_000, effort: 'low' },
+  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', provider: 'anthropic', isDefault: false, inputLimit: 1_000_000, effort: 'low', refusalFallback: true },
+  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', provider: 'anthropic', isDefault: false, inputLimit: 1_000_000, effort: 'low', refusalFallback: true },
 ];
 
 export function defaultModel(provider: Provider): Model {

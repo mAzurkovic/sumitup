@@ -13,7 +13,11 @@
     "postinstall": "wxt prepare"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^5.0.5",
+    "@wxt-dev/module-react": "^1.2.2",
+    "happy-dom": "^21.0.4",
     "linkedom": "0.18.14",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
@@ -22,6 +26,8 @@
     "wxt": "0.21.5"
   },
   "dependencies": {
-    "@mozilla/readability": "0.6.0"
+    "@mozilla/readability": "0.6.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   }
 }

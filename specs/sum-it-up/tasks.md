@@ -39,11 +39,11 @@ Number 3.3 is not used.
 Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exists.
 
 - [x] 4.1 Add toolbar and navigation handling to `background.ts`: `action.onClicked` calling `setOptions` and `open` before any `await`, a pinned icon checked by hand to close the panel, a real browser restart checked by hand to leave a never-opened tab's panel disabled, with both recorded in `proofs.md`, fragment-only URL ignored, and a reload keeps that URL's cache. Tests cover FR57 and FR60 URL cases.
-- [ ] 4.2 Add `src/entrypoints/content/`: closed Shadow DOM button and popup, 20-word rule, editable area skip, `isTrusted` check, `textContent` rendering, "More", Esc and outside click, with `openPanel` calling `startSelection`. Matches mocks 05 and 06, and a script-dispatched click makes no call.
-- [ ] 4.3 Add `Header`, `LevelSelect`, `ModelMenu`, `KeySetup` in `src/entrypoints/sidepanel/`, with labels above dropdowns, `appearance: base-select`, Popover API, masked key, Delete. Matches mocks 01 and 04, including dark theme, except that the provider dropdown in the mocks waits for P1.
-- [ ] 4.4 Add `SummaryCard`, `StatusCard`, `ScopeLink`, `ModelSwitchAction`, `Markdown.tsx`. Matches mocks 03, 07, 08, and a test confirms `Markdown` output has no raw HTML, images, or live links.
-- [ ] 4.5 Add `ScrollColumn`, `ChatMessages`, `ChatInput`, summary divider. Matches mocks 02 and 09: box fixed in every state, disabled until a summary is on screen, newest message scrolls into view.
-- [ ] 4.6 Add `src/entrypoints/sidepanel/App.tsx`: the 10-state panel reducer, port connection with reconnect, `?tabId=` read, restore on reopen, error banner over an existing summary. Tests cover every transition in the design's state diagram, a URL change from every state, and reopening on a stored refusal shows no Retry.
+- [x] 4.2 Add `src/entrypoints/content/`: closed Shadow DOM button and popup, 20-word rule, editable area skip, `isTrusted` check, `textContent` rendering, "More", Esc and outside click, with `openPanel` calling `startSelection`. Matches mocks 05 and 06, and a script-dispatched click makes no call.
+- [x] 4.3 Add `Header`, `LevelSelect`, `ModelMenu`, `KeySetup` in `src/entrypoints/sidepanel/`, with labels above dropdowns, `appearance: base-select`, Popover API, masked key, Delete. Matches mocks 01 and 04, including dark theme, except that the provider dropdown in the mocks waits for P1.
+- [x] 4.4 Add `SummaryCard`, `StatusCard`, `ScopeLink`, `ModelSwitchAction`, `Markdown.tsx`. Matches mocks 03, 07, 08, and a test confirms `Markdown` output has no raw HTML, images, or live links.
+- [x] 4.5 Add `ScrollColumn`, `ChatMessages`, `ChatInput`, summary divider. Matches mocks 02 and 09: box fixed in every state, disabled until a summary is on screen, newest message scrolls into view.
+- [x] 4.6 Add `src/entrypoints/sidepanel/App.tsx`: the 10-state panel reducer, port connection with reconnect, `?tabId=` read, restore on reopen, error banner over an existing summary. Tests cover every transition in the design's state diagram, a URL change from every state, and reopening on a stored refusal shows no Retry.
 
 ## 5. End-to-end tests and release [serial, needs 4]
 
