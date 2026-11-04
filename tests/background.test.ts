@@ -30,6 +30,9 @@ function fakeEvent<T extends unknown[]>() {
 }
 
 let onConnect = fakeEvent<[never]>();
+let onClicked = fakeEvent<[{ id?: number }]>();
+let onUpdated = fakeEvent<[number, { url?: string; status?: string }, { id: number; url?: string }]>();
+const sidePanelOpen = vi.fn(async (_options: object) => undefined);
 
 function connect(name: string, sender: object = {}) {
   const onMessage = fakeEvent<[unknown]>();
@@ -107,11 +110,15 @@ const shortKey = (url = PAGE_URL) => summaryKey(url, 'page', 'short', 'claude-ha
 beforeEach(() => {
   fakeBrowser.reset();
   vi.clearAllMocks();
-  Object.assign(fakeBrowser, { sidePanel: { setOptions }, scripting: { executeScript } });
+  onClicked = fakeEvent();
+  onUpdated = fakeEvent();
+  sidePanelOpen.mockImplementation(async () => undefined);
+  Object.assign(fakeBrowser, { sidePanel: { setOptions, open: sidePanelOpen }, scripting: { executeScript } });
+  Object.assign(fakeBrowser.action, { onClicked });
   Object.assign(fakeBrowser.storage.local, { setAccessLevel });
   onConnect = fakeEvent<[never]>();
   Object.assign(fakeBrowser.runtime, { getPlatformInfo, onConnect });
-  Object.assign(fakeBrowser.tabs, { get: tabsGet });
+  Object.assign(fakeBrowser.tabs, { get: tabsGet, onUpdated });
   tabsGet.mockResolvedValue({ id: TAB_ID, url: PAGE_URL });
   executeScript.mockResolvedValue(extracted());
   background.main();
@@ -124,14 +131,8 @@ afterEach(() => {
 });
 
 describe('worker start', () => {
-  it('disables the side panel on every worker start, since the setting does not survive a browser restart', () => {
-    expect(setOptions).toHaveBeenCalledExactlyOnceWith({ enabled: false });
-  });
-
-  it('disables the side panel again when the browser starts', async () => {
-    setOptions.mockClear();
-    await fakeBrowser.runtime.onStartup.trigger();
-    expect(setOptions).toHaveBeenCalledExactlyOnceWith({ enabled: false });
+  it('leaves the panel off everywhere until a toolbar click turns it on for one tab', () => {
+    expect(setOptions).not.toHaveBeenCalled();
   });
 
   it('closes key storage to content scripts', () => {
@@ -1190,5 +1191,150 @@ describe('selection port', () => {
     expect(calls[0]?.signal?.aborted).toBe(false);
     held.write(textDelta('Done'), stop('end_turn'));
     await selection.next('done');
+  });
+});
+
+describe('toolbar click', () => {
+  it('enables the panel on that tab only and opens it, before any wait', () => {
+    onClicked.fire({ id: TAB_ID });
+    expect(setOptions).toHaveBeenLastCalledWith({ tabId: TAB_ID, path: `sidepanel.html?tabId=${TAB_ID}`, enabled: true });
+    expect(sidePanelOpen).toHaveBeenCalledExactlyOnceWith({ tabId: TAB_ID });
+  });
+
+  it('does not open a panel for a tab with no id', () => {
+    setOptions.mockClear();
+    onClicked.fire({});
+    expect(setOptions).not.toHaveBeenCalled();
+    expect(sidePanelOpen).not.toHaveBeenCalled();
+  });
+
+  it('logs a panel that fails to open', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    sidePanelOpen.mockRejectedValue(new Error('No active side panel'));
+    onClicked.fire({ id: TAB_ID });
+    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
+  });
+});
+
+describe('navigation', () => {
+  const otherKey = shortKey('https://example.com/other');
+  const done = { text: 'Summary', status: 'complete' as const };
+
+  async function openWithSummary() {
+    await updateTab(TAB_ID, () => ({
+      url: PAGE_URL,
+      scope: 'selection',
+      selectionText: 'Selected',
+      chat: [{ role: 'user', text: 'Hi' }],
+      source: { kind: 'selection', text: 'Selected', videoExcluded: false },
+      summaries: { [shortKey()]: done, [otherKey]: done },
+    }));
+    const panel = openPanel();
+    await panel.next('state');
+    return panel;
+  }
+
+  const navigate = (url: string, status?: string) =>
+    onUpdated.fire(TAB_ID, { url, ...(status && { status }) }, { id: TAB_ID, url });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  it.each([
+    ['a new page', 'https://example.com/next'],
+    ['a single-page app route', 'https://example.com/article/comments'],
+    ['a new query', `${PAGE_URL}?page=2`],
+  ])('treats %s as a new page: tells the panel and clears the chat, with no call', async (_name, url) => {
+    const calls = stubProvider();
+    const panel = await openWithSummary();
+    navigate(url, 'loading');
+    expect(await panel.next('navigated')).toEqual({ type: 'navigated' });
+    const tab = await readTab(TAB_ID);
+    expect(tab).toMatchObject({ url, scope: 'page', chat: [] });
+    expect(tab?.source).toBeUndefined();
+    expect(tab?.selectionText).toBeUndefined();
+    expect(tab?.summaries).toEqual({ [shortKey()]: done, [otherKey]: done });
+    expect(calls).toEqual([]);
+    expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it('ignores a change to the fragment only', async () => {
+    const panel = await openWithSummary();
+    const before = await readTab(TAB_ID);
+    navigate(`${PAGE_URL}#section-2`);
+    await settle();
+    expect(panel.messages.some(({ type }) => type === 'navigated')).toBe(false);
+    expect(await readTab(TAB_ID)).toEqual(before);
+  });
+
+  it('records the page when the panel connects, so a first fragment change is still ignored', async () => {
+    tabsGet.mockResolvedValue({ id: TAB_ID, url: `${PAGE_URL}#top` });
+    const panel = openPanel();
+    await panel.next('state');
+    await vi.waitFor(async () => expect((await readTab(TAB_ID))?.url).toBe(PAGE_URL));
+    navigate(`${PAGE_URL}#section-2`);
+    await settle();
+    expect(panel.messages.some(({ type }) => type === 'navigated')).toBe(false);
+  });
+
+  it('does not record a page whose URL cannot be read', async () => {
+    tabsGet.mockResolvedValue({ id: TAB_ID });
+    await openPanel().next('state');
+    await settle();
+    expect(await readTab(TAB_ID)).toBeUndefined();
+  });
+
+  it('shows nothing when the panel is closed, but still clears the old chat', async () => {
+    await openWithSummary().then((panel) => panel.close());
+    navigate('https://example.com/next', 'loading');
+    await vi.waitFor(async () => expect((await readTab(TAB_ID))?.url).toBe('https://example.com/next'));
+    expect((await readTab(TAB_ID))?.chat).toEqual([]);
+  });
+
+  it('tells only the panel of the tab that changed', async () => {
+    const panel = await openWithSummary();
+    const other = connect(`panel:${TAB_ID + 1}`);
+    await other.next('state');
+    navigate('https://example.com/next', 'loading');
+    await panel.next('navigated');
+    await settle();
+    expect(other.messages.some(({ type }) => type === 'navigated')).toBe(false);
+  });
+
+  it('ends a run in progress, so its text is not shown on the new page', async () => {
+    await saveStoredKey();
+    const held = heldReply();
+    const calls = stubProvider(held.response);
+    const panel = openPanel();
+    panel.send({ type: 'summarize' });
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    held.abortOn(calls[0]!.signal!);
+    held.write(textDelta('Old page text'));
+    await panel.next('delta');
+    navigate('https://example.com/next', 'loading');
+    await panel.next('navigated');
+    expect(calls[0]?.signal?.aborted).toBe(true);
+    const navigatedAt = panel.messages.findIndex(({ type }) => type === 'navigated');
+    expect(panel.messages.slice(navigatedAt + 1).some(({ type }) => type === 'delta')).toBe(false);
+  });
+
+  it('ignores a tab it has no record of', async () => {
+    navigate('https://example.com/next', 'loading');
+    await settle();
+    expect(await readTab(TAB_ID)).toBeUndefined();
+  });
+
+  it('keeps the summaries, page text, and chat when the page reloads', async () => {
+    const panel = await openWithSummary();
+    const before = await readTab(TAB_ID);
+    onUpdated.fire(TAB_ID, { status: 'loading' }, { id: TAB_ID, url: PAGE_URL });
+    await settle();
+    expect(await readTab(TAB_ID)).toEqual(before);
+    expect(panel.messages.some(({ type }) => type === 'navigated')).toBe(false);
+  });
+
+  it('logs a failure to handle a tab change', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(fakeBrowser.storage.session, 'get').mockRejectedValue(new Error('Unexpected'));
+    navigate('https://example.com/next', 'loading');
+    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
   });
 });

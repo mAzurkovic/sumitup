@@ -24,11 +24,7 @@ const SAVE_INTERVAL_MS = 500;
 const KEEP_ALIVE_MS = 20_000;
 
 const runs = new Map<string, { controller: AbortController; finished: Promise<void> }>();
-
-// Chrome keeps this setting in memory, so a browser restart resets it to enabled.
-function disablePanel() {
-  browser.sidePanel.setOptions({ enabled: false });
-}
+const openPanels = new Map<number, Set<Post<PanelMessage>>>();
 
 async function readKey(): Promise<string | undefined> {
   const { keys } = await browser.storage.local.get('keys');
@@ -44,10 +40,13 @@ function currentModel({ modelByProvider }: Settings): Model {
   return MODELS.find(({ id }) => id === modelByProvider.anthropic) ?? defaultModel('anthropic');
 }
 
-/** A fragment change is not a new page. Undefined when the tab is gone or its URL cannot be read. */
+/** A fragment change is not a new page. */
+const withoutFragment = (url: string) => url.split('#')[0]!;
+
+/** Undefined when the tab is gone or its URL cannot be read. */
 async function pageUrl(tabId: number): Promise<string | undefined> {
   const tab = await browser.tabs.get(tabId).catch(() => undefined);
-  return tab?.url?.split('#')[0];
+  return tab?.url && withoutFragment(tab.url);
 }
 
 /** After a model switch the summary on screen stays there, with the model that wrote it. */
@@ -323,14 +322,47 @@ function connectPanel(port: Port) {
   if (Number.isNaN(tabId) || port.sender?.tab) return port.disconnect();
 
   const post = poster<PanelMessage>(port);
-  port.onDisconnect.addListener(() => void stopRun(`panel:${tabId}`));
+  const panels = openPanels.get(tabId) ?? new Set();
+  openPanels.set(tabId, panels.add(post));
+  port.onDisconnect.addListener(() => {
+    panels.delete(post);
+    void stopRun(`panel:${tabId}`);
+  });
   port.onMessage.addListener((request) => {
     handlePanelRequest(post, tabId, request as PanelRequest).catch((error) => reportUnexpected(post, error));
   });
-  panelState(tabId).then(
-    (state) => post({ type: 'state', state }),
-    (error) => reportUnexpected(post, error),
-  );
+  recordPage(tabId)
+    .then(() => panelState(tabId))
+    .then(
+      (state) => post({ type: 'state', state }),
+      (error) => reportUnexpected(post, error),
+    );
+}
+
+/** Navigation compares against the stored URL, so the panel stores the page it opens on. */
+async function recordPage(tabId: number): Promise<void> {
+  const url = await pageUrl(tabId);
+  if (url) await tabForPage(tabId, url, false);
+}
+
+/** A new page keeps the tab's summaries for later, but its chat and content belong to the old page. */
+async function followNavigation(tabId: number, url: string): Promise<void> {
+  const stored = await readTab(tabId);
+  if (!stored || stored.url === url) return;
+  await stopRun(`panel:${tabId}`);
+  await updateTab(tabId, (tab) => ({ url, scope: 'page', summaries: tab!.summaries, chat: [] }));
+  openPanels.get(tabId)?.forEach((post) => post({ type: 'navigated' }));
+}
+
+function followTab(tabId: number, change: Browser.tabs.OnUpdatedInfo): Promise<void> {
+  return change.url ? followNavigation(tabId, withoutFragment(change.url)) : Promise.resolve();
+}
+
+function openPanelFromToolbar(tab: Browser.tabs.Tab) {
+  if (tab.id === undefined) return;
+  // Chrome allows open() only inside the click, so neither call may wait for anything first.
+  browser.sidePanel.setOptions({ tabId: tab.id, path: `sidepanel.html?tabId=${tab.id}`, enabled: true });
+  browser.sidePanel.open({ tabId: tab.id }).catch(console.error);
 }
 
 async function runPopup(post: Post<SelectionMessage>, selection: string, signal: AbortSignal): Promise<void> {
@@ -367,12 +399,14 @@ function connectSelection(port: Port) {
 }
 
 export default defineBackground(() => {
-  disablePanel();
   browser.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
-  browser.runtime.onStartup.addListener(disablePanel);
   browser.runtime.onConnect.addListener((port) => {
     if (port.name === 'selection') connectSelection(port);
     else connectPanel(port);
+  });
+  browser.action.onClicked.addListener(openPanelFromToolbar);
+  browser.tabs.onUpdated.addListener((tabId, change) => {
+    followTab(tabId, change).catch(console.error);
   });
   browser.tabs.onRemoved.addListener(async (tabId) => {
     await Promise.all([stopRun(`panel:${tabId}`), stopRun(`selection:${tabId}`)]);

@@ -38,7 +38,7 @@ Number 3.3 is not used.
 
 Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exists.
 
-- [ ] 4.1 Add toolbar and navigation handling to `background.ts`: `action.onClicked` calling `setOptions` and `open` before any `await`, a pinned icon checked by hand to close the panel, a real browser restart checked by hand to leave a never-opened tab's panel disabled, with both recorded in `proofs.md`, fragment-only URL ignored, reload clears that URL's cache. Tests cover FR57 and FR60 URL cases.
+- [x] 4.1 Add toolbar and navigation handling to `background.ts`: `action.onClicked` calling `setOptions` and `open` before any `await`, a pinned icon checked by hand to close the panel, a real browser restart checked by hand to leave a never-opened tab's panel disabled, with both recorded in `proofs.md`, fragment-only URL ignored, and a reload keeps that URL's cache. Tests cover FR57 and FR60 URL cases.
 - [ ] 4.2 Add `src/entrypoints/content/`: closed Shadow DOM button and popup, 20-word rule, editable area skip, `isTrusted` check, `textContent` rendering, "More", Esc and outside click, with `openPanel` calling `startSelection`. Matches mocks 05 and 06, and a script-dispatched click makes no call.
 - [ ] 4.3 Add `Header`, `LevelSelect`, `ModelMenu`, `KeySetup` in `src/entrypoints/sidepanel/`, with labels above dropdowns, `appearance: base-select`, Popover API, masked key, Delete. Matches mocks 01 and 04, including dark theme, except that the provider dropdown in the mocks waits for P1.
 - [ ] 4.4 Add `SummaryCard`, `StatusCard`, `ScopeLink`, `ModelSwitchAction`, `Markdown.tsx`. Matches mocks 03, 07, 08, and a test confirms `Markdown` output has no raw HTML, images, or live links.

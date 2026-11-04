@@ -11,4 +11,11 @@ export default defineConfig({
     host_permissions: ['<all_urls>'],
     action: { default_title: 'Sum it up!' },
   },
+  hooks: {
+    // A default panel would be on every tab, and Chrome lists it there after a restart.
+    // With none, a toolbar click turns the panel on for that one tab.
+    'build:manifestGenerated': (_wxt, manifest) => {
+      delete manifest.side_panel;
+    },
+  },
 });
