@@ -18,10 +18,7 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-**Sum it up!** is a Chrome extension that summarizes web pages and highlighted text in a side panel, then lets you ask follow-up questions about them. You bring your own AI key. There is no account, no subscription, and no server between you and the provider.
-
-> [!IMPORTANT]
-> **Not usable yet.** The core libraries are built and tested, but the side panel and on-page UI are not. If you load the extension today, you get a toolbar icon and nothing else. This README describes the planned first release. See the [roadmap](#roadmap) for what is done, and watch the repo for the first release.
+**Sum it up!** is a Chrome extension that summarizes web pages and highlighted text in a side panel, then lets you ask follow-up questions about them. You bring your own Anthropic API key. There is no account, no subscription, and no server between you and the provider.
 
 ## Why
 
@@ -29,11 +26,14 @@ Long pages take a long time to read, and the more concepts they pack in, the har
 
 ## Features
 
-- **Page summaries:** click the toolbar icon to summarize the page's main content. Navigation, ads, footers, and comments are left out.
-- **Highlight summaries:** select 20 or more words to get a "Sum it up!" button and a popup summary of at most 3 sentences.
+- **Page summaries:** click the toolbar icon to summarize the page's main content. Navigation, ads, and comments are left out.
+- **Highlight summaries:** select 20 or more words to get a "Sum it up!" button and a popup summary of at most 3 sentences. **More** opens the panel with a full summary of the selection and chat about it.
 - **Four detail levels:** see the [table below](#detail-levels).
 - **Grounded chat:** ask follow-up questions. Answers come only from the summarized content. If the page doesn't cover it, the reply says so instead of guessing.
 - **Streaming with a Stop button:** text appears as it generates, and stopping keeps what you already have.
+- **Cached summaries:** switching back to a level or model you already used, reloading the page, or reopening the panel shows the saved summary with no new request, until the tab closes.
+- **Model switch:** pick another model from the menu, then summarize again with it. The summary on screen stays until the new one arrives.
+- **Clear failures:** rate limits, a rejected key, a retired model, and lost connections each show their own message, with Retry or a link to the menu. Nothing retries on its own.
 - **Very long pages:** you confirm an estimated token count first, then the page is split, summarized in parts, and merged.
 - **No surprise spending:** nothing is sent to a provider until you click.
 - **Light and dark themes:** follows your system setting.
@@ -49,11 +49,9 @@ Long pages take a long time to read, and the more concepts they pack in, the har
 
 ## Preview
 
-These are design mocks, not screenshots of a running build. The final UI may differ.
-
 | Page summary and chat | Highlight popup |
 |---|---|
-| ![Mock of a Wikipedia page with the side panel showing a bulleted summary and a chat message](specs/sum-it-up/mocks/png/02-page-summary.png) | ![Mock of highlighted text with a popup showing a short summary and a More link](specs/sum-it-up/mocks/png/06-highlight-popup.png) |
+| ![An article with the side panel showing a bulleted summary and a chat answer](store/images/screenshot-1-page-summary.png) | ![Highlighted text with a popup showing a short summary and a More link](store/images/screenshot-2-selection.png) |
 
 ## Supported models
 
@@ -83,13 +81,13 @@ See [requirements.md](specs/sum-it-up/requirements.md) and [design.md](specs/sum
 
 ## Privacy and security
 
-These are design requirements for the first release. Provider calls are direct, with no backend in this repo.
+Provider calls go straight from your browser to the provider, with no backend in this repo. The full [privacy policy](store/privacy-policy.md) is in `store/`.
 
-- **No developer server:** page content and keys go only from your browser to the provider you selected.
+- **No developer server:** page content and keys go only from your browser to the provider you selected, and only when you click.
 - **No tracking:** no analytics or telemetry, and no account.
-- **Local keys:** keys live in Chrome's local extension storage on your device. They do not sync across devices or profiles, and Chrome does not encrypt this storage on disk.
-- **Temporary sessions:** summaries and chat stay in memory only and clear when the browser restarts.
-- **Page text is data:** content is wrapped in delimiters so that instructions embedded in a page are not followed. Model output renders as plain formatted text, with no scripts and no auto-loaded remote content.
+- **Local keys:** your key lives in Chrome's local extension storage on your device, where page scripts and content scripts cannot read it. It does not sync across devices or profiles, and Chrome does not encrypt this storage on disk. Delete it from the panel's model menu at any time.
+- **Temporary sessions:** each tab's summaries, chat, and page text stay in Chrome's session storage until the tab closes or Chrome quits.
+- **Page text is data:** content is wrapped in delimiters so that instructions embedded in a page are not followed. Model output renders as plain formatted text, with no scripts, links, or remote content.
 
 ### Permissions
 
@@ -112,7 +110,26 @@ These are design requirements for the first release. Provider calls are direct, 
 
 ## Getting started
 
-The extension is not on the Chrome Web Store yet. To build it from source, you need [Node.js](https://nodejs.org/) 24 (the version CI uses) and Chrome 141 or newer.
+You need Chrome 141 or newer and an API key from the [Anthropic Console](https://console.anthropic.com/settings/keys). Anthropic bills your key directly for what you use.
+
+### Install
+
+The extension is not on the Chrome Web Store yet. Until it is, install the zip from the [latest release](https://github.com/mAzurkovic/sumitup/releases/latest):
+
+1. Download `sum-it-up-<version>-chrome.zip` and unzip it.
+2. Open `chrome://extensions` and turn on **Developer mode**.
+3. Click **Load unpacked** and select the unzipped folder.
+
+### Use
+
+1. Click the **Sum it up!** toolbar icon. The side panel opens and asks for your key.
+2. Paste your key and click **Save**. The summary starts.
+3. Change the detail level or model at the top of the panel, or ask a question in the chat box.
+4. On any page, select 20 or more words and click the **Sum it up!** button for a quick summary.
+
+### Build from source
+
+You need [Node.js](https://nodejs.org/) 24, the version CI uses.
 
 ```sh
 git clone https://github.com/mAzurkovic/sumitup.git
@@ -121,13 +138,7 @@ npm ci
 npm run build
 ```
 
-Then load it in Chrome:
-
-1. Open `chrome://extensions`.
-2. Turn on **Developer mode**.
-3. Click **Load unpacked** and select `dist/chrome-mv3`.
-
-When the UI ships, you will also need an API key from your provider, such as the [Anthropic Console](https://console.anthropic.com/).
+Then load `dist/chrome-mv3` with **Load unpacked**, as above.
 
 ## Development
 
@@ -139,8 +150,18 @@ When the UI ships, you will also need an API key from your provider, such as the
 | `npm run typecheck` | Runs the TypeScript check |
 | `npm test` | Runs the Vitest suite. No API key is needed |
 | `npm run coverage` | Runs tests and enforces 100% line, branch, and statement coverage |
+| `npm run e2e` | Builds a test version and runs the Playwright tests in headless Chromium against a local fake provider. No API key is needed |
 
 `scripts/build-icons` regenerates the toolbar icons from `src/assets/logo.svg`. It needs `librsvg`.
+
+The end-to-end tests build with `wxt build --mode test`, which reads `.env.test` and points the extension at the fake provider on `127.0.0.1:4319`. A test checks that the production build calls only `api.anthropic.com`. The fake provider uses a fixed port, so run one end-to-end run at a time.
+
+### Releases
+
+1. Set the new version in `package.json` and merge it.
+2. Push a tag that matches it, such as `v1.0.0`. A suffix, such as `v1.1.0-rc1`, makes a pre-release.
+3. The release workflow runs all CI checks, then attaches `sum-it-up-<version>-chrome.zip` to a GitHub Release.
+4. Upload the zip in the Chrome Web Store developer dashboard. The listing text, privacy answers, and images are in `store/`.
 
 ### Project layout
 
@@ -160,7 +181,9 @@ src/
     summarize.ts    Single-call and split-and-merge flows
     text.ts         Word count, token estimate, part matching
 specs/sum-it-up/    Requirements, design, tasks, proofs, and UI mocks
-tests/              Vitest tests
+store/              Chrome Web Store listing, privacy answers, privacy policy, and images
+tests/              Vitest tests and the fake provider
+  e2e/              Playwright tests
 ```
 
 Built with [WXT](https://wxt.dev/) and TypeScript. Provider calls use plain `fetch` with no AI SDK, so every network call is easy to audit.
@@ -172,11 +195,13 @@ Detailed status is in [tasks.md](specs/sum-it-up/tasks.md).
 - [x] Extension scaffold, CI, and technical proofs
 - [x] Claude provider, model list, text tools, and prompts
 - [x] Content extraction, session store, summarizer, and chat logic
-- [ ] Service worker: keys, settings, ports, toolbar, and navigation
-- [ ] Highlight button and popup
-- [ ] Side panel UI
-- [ ] End-to-end tests and quality evals
+- [x] Service worker: keys, settings, ports, toolbar, and navigation
+- [x] Highlight button and popup
+- [x] Side panel UI
+- [x] End-to-end tests against a fake provider, in CI
+- [x] Release workflow and store listing
 - [ ] First release on the Chrome Web Store
+- [ ] Quality evals against real models
 - [ ] OpenAI and Google Gemini providers
 - [ ] YouTube summaries from transcripts
 
@@ -192,6 +217,7 @@ Issues and pull requests are welcome. Before you open a pull request:
 npm run typecheck
 npm run coverage
 npm run build
+npm run e2e
 ```
 
 Never commit API keys. `.env.local` is ignored by git for this reason.

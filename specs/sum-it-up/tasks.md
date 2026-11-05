@@ -52,7 +52,7 @@ Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exi
 - [x] 5.3 Add `tests/e2e/selection-chat.spec.ts`: 20-word rule, popup, "More", no-key flow, scope switch, chat, scrolling, long page confirm. Tests pass.
 - [x] 5.4 Add `tests/e2e/failures-privacy.spec.ts`: every FR46 message and action except the P1 transcript row, FR47, FR48, NFR2, NFR3, and NFR11 with a network log. Tests pass.
 - [ ] 5.5 Add `evals/pages.json` (50 pages), 5 prompt injection pages, 20 off-content questions, and `npm run eval` reporting NFR1, NFR4, NFR5 review sheet, NFR10, NFR12, FR64, FR76. Report runs on the default model with the key from `.env.local`.
-- [ ] 5.6 Add `.github/workflows/release.yml` building `wxt zip` on a version tag and attaching it to a GitHub Release, plus `store/` listing text, NFR14 disclosure, and privacy policy. Test tag produces a zip that loads in Chrome.
+- [x] 5.6 Add `.github/workflows/release.yml` building `wxt zip` on a version tag and attaching it to a GitHub Release, plus `store/` listing text, NFR14 disclosure, and privacy policy. Test tag produces a zip that loads in Chrome.
 
 ## Dependencies
 
