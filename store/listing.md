@@ -46,8 +46,14 @@ https://github.com/mAzurkovic/sumitup/blob/main/store/privacy-policy.md
 
 ## Images
 
-Upload these from `store/images/`:
+All files are in `store/images/`. Screenshots and promo tiles are 24-bit PNGs with no alpha channel.
 
-- Store icon, 128×128: `public/icon/128.png`
-- Screenshots, 1280×800: `store/images/screenshot-*.png`
-- Small promo tile, 440×280: `store/images/promo-small.png`
+| Dashboard field | File | Size |
+|---|---|---|
+| Store icon | `store-icon.png` (96×96 artwork with 16px transparent padding) | 128×128 |
+| Screenshots, in this order | `screenshot-1-page-summary.png`, `screenshot-2-selection.png`, `screenshot-3-detail-levels.png`, `screenshot-4-models.png`, `screenshot-5-setup.png` | 1280×800 |
+| Small promo tile | `promo-small.png` | 440×280 |
+| Marquee promo tile | `promo-marquee.png` | 1400×560 |
+| Global promo video | None. The field is optional. | |
+
+The screenshots show the real extension, with summary text scripted by the test provider.
