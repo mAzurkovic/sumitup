@@ -47,10 +47,10 @@ Build to the mocks. Subtasks 4.3 to 4.5 are [parallel] once 4.6's state type exi
 
 ## 5. End-to-end tests and release [serial, needs 4]
 
-- [ ] 5.1 Add `tests/fake-provider.ts`, a local server scripting streams and every FR46 failure except the P1 transcript row, and the build variable that points test builds at it. Production build has only the real hosts, confirmed by a test on build output.
-- [ ] 5.2 Add `playwright.config.ts` and `tests/e2e/summary.spec.ts`, with `--load-extension`: setup, page summary, levels, cache, Stop, panel close, per-tab, navigation, reload. Tests pass, and the step is added to `ci.yml`.
-- [ ] 5.3 Add `tests/e2e/selection-chat.spec.ts`: 20-word rule, popup, "More", no-key flow, scope switch, chat, scrolling, long page confirm. Tests pass.
-- [ ] 5.4 Add `tests/e2e/failures-privacy.spec.ts`: every FR46 message and action except the P1 transcript row, FR47, FR48, NFR2, NFR3, and NFR11 with a network log. Tests pass.
+- [x] 5.1 Add `tests/fake-provider.ts`, a local server scripting streams and every FR46 failure except the P1 transcript row, and the build variable that points test builds at it. Production build has only the real hosts, confirmed by a test on build output.
+- [x] 5.2 Add `playwright.config.ts` and `tests/e2e/summary.spec.ts`, with `--load-extension`: setup, page summary, levels, cache, Stop, panel close, per-tab, navigation, reload. Tests pass, and the step is added to `ci.yml`.
+- [x] 5.3 Add `tests/e2e/selection-chat.spec.ts`: 20-word rule, popup, "More", no-key flow, scope switch, chat, scrolling, long page confirm. Tests pass.
+- [x] 5.4 Add `tests/e2e/failures-privacy.spec.ts`: every FR46 message and action except the P1 transcript row, FR47, FR48, NFR2, NFR3, and NFR11 with a network log. Tests pass.
 - [ ] 5.5 Add `evals/pages.json` (50 pages), 5 prompt injection pages, 20 off-content questions, and `npm run eval` reporting NFR1, NFR4, NFR5 review sheet, NFR10, NFR12, FR64, FR76. Report runs on the default model with the key from `.env.local`.
 - [ ] 5.6 Add `.github/workflows/release.yml` building `wxt zip` on a version tag and attaching it to a GitHub Release, plus `store/` listing text, NFR14 disclosure, and privacy policy. Test tag produces a zip that loads in Chrome.
 

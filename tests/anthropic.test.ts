@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { MODELS } from '../src/lib/models';
 import { anthropic } from '../src/lib/providers/anthropic';
 import { readAll, sentRequest, sseText, STATUS_KINDS, stubFetch } from './provider-helpers';
@@ -190,5 +190,20 @@ describe('anthropic validateKey', () => {
   it('maps no credit to rate', async () => {
     stubFetch('Your credit balance is too low', 400);
     await expect(anthropic.validateKey('k')).rejects.toMatchObject({ kind: 'rate' });
+  });
+});
+
+describe('anthropic host', () => {
+  it('calls the host a test build sets', async () => {
+    vi.stubEnv('WXT_ANTHROPIC_BASE_URL', 'http://127.0.0.1:4319/v1');
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+    });
+    vi.resetModules();
+    const fetchMock = vi.fn(async () => new Response('{"data":[]}'));
+    vi.stubGlobal('fetch', fetchMock);
+    const { anthropic: testBuild } = await import('../src/lib/providers/anthropic');
+    await testBuild.validateKey('k');
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:4319/v1/models', expect.anything());
   });
 });

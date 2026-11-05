@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 type Manifest = {
@@ -61,4 +61,25 @@ describe('built manifest', () => {
     expect(readFileSync('dist/chrome-mv3/extract.js', 'utf8')).toContain(readerMarker);
     expect(readFileSync('dist/chrome-mv3/content-scripts/content.js', 'utf8')).not.toContain(readerMarker);
   });
+});
+
+/** All script text of a build, so a test can check which hosts it can reach. */
+const scriptsOf = (dir: string) =>
+  readdirSync(dir, { recursive: true, encoding: 'utf8' })
+    .filter((file) => file.endsWith('.js'))
+    .map((file) => readFileSync(`${dir}/${file}`, 'utf8'))
+    .join('\n');
+
+describe('provider hosts in the build', () => {
+  it('reaches only the real provider host in a production build', () => {
+    execSync('npx wxt build', { stdio: 'pipe' });
+    const scripts = scriptsOf('dist/chrome-mv3');
+    expect(scripts).toContain('https://api.anthropic.com/v1');
+    expect(scripts).not.toMatch(/127\.0\.0\.1|localhost/);
+  }, 120_000);
+
+  it('reaches the local fake provider in a test build', () => {
+    execSync('npx wxt build --mode test', { stdio: 'pipe' });
+    expect(scriptsOf('dist/chrome-mv3-test')).toContain('http://127.0.0.1:4319/v1');
+  }, 120_000);
 });
