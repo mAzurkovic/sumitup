@@ -7,7 +7,7 @@ import { ChatMessages } from './ChatMessages';
 import { Header } from './Header';
 import { KeySetup } from './KeySetup';
 import { LevelSelect } from './LevelSelect';
-import { ModelMenu } from './ModelMenu';
+import { MODEL_MENU_ID, ModelMenu } from './ModelMenu';
 import { ModelSwitchAction } from './ModelSwitchAction';
 import { ScopeLink } from './ScopeLink';
 import { ScrollColumn } from './ScrollColumn';
@@ -43,6 +43,10 @@ function useWorker(tabId: number) {
   useEffect(() => {
     if (panel.startPending) send({ type: 'summarize' });
   }, [panel.startPending, send]);
+
+  useEffect(() => {
+    if (panel.openMenu) document.getElementById(MODEL_MENU_ID)!.showPopover();
+  }, [panel.openMenu]);
 
   return { panel, send, cancel };
 }

@@ -18,7 +18,7 @@ export function ModelMenu({ modelId, keyEnding, onModelChange, onDeleteKey }: Mo
       <span className="label" id="model-label">
         Model
       </span>
-      <button type="button" className="pill" popoverTarget={MODEL_MENU_ID} aria-labelledby="model-label">
+      <button type="button" id="model-pill" className="pill" popoverTarget={MODEL_MENU_ID} aria-labelledby="model-label model-pill">
         {current?.name}
       </button>
       <div id={MODEL_MENU_ID} popover="auto" className="menu">

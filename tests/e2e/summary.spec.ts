@@ -150,6 +150,15 @@ test.describe('navigation', () => {
     await expect(panel.locator('li')).toHaveText('Next page.');
   });
 
+  test('counts a move to a page it cannot read as a new page', async ({ extension, fake }) => {
+    const { tab, panel } = await summarized(extension, fake);
+    await tab.goto('chrome://version');
+    await expect(panel.getByText('New page. Sum it up?')).toBeVisible();
+    await panel.getByRole('button', { name: 'Sum it up' }).click();
+    await expect(panel.getByRole('alert')).toHaveText("Sum it up can't read this page");
+    expect(fake.calls).toHaveLength(1);
+  });
+
   test('ignores a change to the fragment only', async ({ extension, fake }) => {
     const { tab, panel } = await summarized(extension, fake);
     await tab.evaluate(() => {

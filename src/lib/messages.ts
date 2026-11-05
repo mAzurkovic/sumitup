@@ -12,6 +12,9 @@ export type PanelRequest =
   | { type: 'saveKey'; key: string }
   | { type: 'deleteKey' };
 
+/** The requests that start a run, each answered first with `started`. */
+export const RUN_REQUESTS: ReadonlySet<PanelRequest['type']> = new Set(['summarize', 'retry', 'chat', 'setLevel']);
+
 export type SelectionRequest = { type: 'summarizeSelection'; text: string } | { type: 'stop' };
 
 export type WorkerErrorKind = ProviderErrorKind | 'noKey' | 'restricted' | 'noContent';
@@ -28,9 +31,13 @@ export interface PanelState {
   chat: ChatMessage[];
   videoExcluded: boolean;
   confirmTokens?: number;
+  /** A popup failure the panel opened to fix, shown with its menu link until the next summary. */
+  failure?: WorkerErrorKind;
 }
 
 export type PanelMessage =
+  /** A run begins. `requested` is false for a run the worker starts itself, after "More" on the page. */
+  | { type: 'started'; requested: boolean }
   | { type: 'state'; state: PanelState }
   | { type: 'delta'; stream: StreamName; text: string }
   | { type: 'done'; stream: StreamName; status: 'complete' | 'incomplete' }
@@ -42,8 +49,10 @@ export type SelectionMessage =
   | { type: 'done'; status: 'complete' | 'incomplete' }
   | { type: 'error'; kind: WorkerErrorKind };
 
-/** From the content script, for "More" and for a popup with no key. */
+/** From the content script, for "More", for a popup with no key, and for a popup failure fixed in the menu. */
 export interface OpenPanelMessage {
   type: 'openPanel';
   text: string;
+  /** The panel opens on this failure instead of asking the provider again. */
+  failure?: WorkerErrorKind;
 }

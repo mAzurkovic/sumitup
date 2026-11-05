@@ -122,7 +122,8 @@ select,
 select::picker-icon,
 .pill::after {
   color: var(--faint);
-  content: '▾';
+  /* Decoration only, so the empty alternative text keeps it out of the button's name. */
+  content: '▾' / '';
   margin-left: auto;
   padding-left: 6px;
 }
@@ -223,7 +224,7 @@ select:open::picker(select) {
 }
 
 .model[aria-checked='true']::before {
-  content: '✓';
+  content: '✓' / '';
   width: 10px;
   color: var(--accent);
 }

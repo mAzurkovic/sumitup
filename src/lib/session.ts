@@ -1,3 +1,4 @@
+import type { WorkerErrorKind } from './messages';
 import type { Level } from './prompts';
 import type { ChatMessage } from './providers/types';
 
@@ -23,6 +24,8 @@ export interface TabState {
   source?: Source;
   /** The model whose summary the panel shows, kept across a model switch. */
   shownModelId?: string;
+  /** A popup failure the panel shows until the next summary. */
+  failure?: WorkerErrorKind;
   usedAt: number;
 }
 
@@ -78,7 +81,7 @@ export function updateTab(tabId: number, change: TabChange): Promise<void> {
 }
 
 /** Deletes old selection summaries, because the cache key does not identify the selected text. */
-export function startSelection(tabId: number, url: string, text: string): Promise<void> {
+export function startSelection(tabId: number, url: string, text: string, failure?: WorkerErrorKind): Promise<void> {
   return updateTab(tabId, (tab) => ({
     url,
     scope: 'selection',
@@ -88,6 +91,7 @@ export function startSelection(tabId: number, url: string, text: string): Promis
     ),
     chat: [],
     source: { kind: 'selection', text, videoExcluded: false },
+    ...(failure && { failure }),
   }));
 }
 

@@ -7,7 +7,9 @@ import type {
   PanelState,
   SelectionMessage,
   SelectionRequest,
+  WorkerErrorKind,
 } from '@/lib/messages';
+import { FAILURES } from '@/lib/failures';
 import { defaultModel, MAX_OUTPUT, MODELS, type Model } from '@/lib/models';
 import { popupPrompt, type Level } from '@/lib/prompts';
 import { anthropic } from '@/lib/providers/anthropic';
@@ -87,8 +89,11 @@ async function panelState(tabId: number, confirmTokens?: number): Promise<PanelS
     chat: current?.chat ?? [],
     videoExcluded: current?.source?.videoExcluded ?? false,
     ...(confirmTokens !== undefined && { confirmTokens }),
+    ...(current?.failure && { failure: current.failure }),
   };
 }
+
+const withoutSummary = ({ summary: _summary, summaryModelId: _summaryModelId, ...state }: PanelState): PanelState => state;
 
 /**
  * Claims the slot at once, so Stop reaches a request still waiting for the earlier run to end.
@@ -119,6 +124,22 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
       signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
     ),
   ]);
+}
+
+/**
+ * A panel run tells the panel when it begins. Everything an earlier run in the slot posted comes before that,
+ * so the panel can tell late text from a replaced run apart from the new run's text.
+ */
+function startPanelRun(
+  post: Post<PanelMessage>,
+  tabId: number,
+  requested: boolean,
+  work: (signal: AbortSignal) => Promise<void>,
+): Promise<void> {
+  return startRun(`panel:${tabId}`, (signal) => {
+    post({ type: 'started', requested });
+    return work(signal);
+  });
 }
 
 async function stopRun(slot: string): Promise<void> {
@@ -178,6 +199,14 @@ async function runSummary(
     const settings = await step(readSettings());
     const model = currentModel(settings);
     const tab = await step(tabForPage(tabId, url, request.wholePage ?? false));
+    if (tab.failure) {
+      await step(
+        updateTab(tabId, (current) => {
+          const { failure: _failure, ...rest } = current!;
+          return rest;
+        }),
+      );
+    }
     const cacheKey = summaryKey(url, tab.scope, settings.level, model.id);
     if (!request.retry && tab.summaries[cacheKey]) {
       return post({ type: 'state', state: await step(panelState(tabId)) });
@@ -194,8 +223,7 @@ async function runSummary(
     }
 
     // Tells the panel what this source holds, such as a left-out video, with no summary to replace its spinner.
-    const { summary: _summary, summaryModelId: _summaryModelId, ...state } = await step(panelState(tabId));
-    post({ type: 'state', state });
+    post({ type: 'state', state: withoutSummary(await step(panelState(tabId))) });
 
     save = (status) =>
       updateTab(tabId, (current) => ({
@@ -289,18 +317,19 @@ async function changeSettings(change: Partial<Settings>): Promise<void> {
 
 async function handlePanelRequest(post: Post<PanelMessage>, tabId: number, request: PanelRequest): Promise<void> {
   const slot = `panel:${tabId}`;
+  const run = (work: (signal: AbortSignal) => Promise<void>) => startPanelRun(post, tabId, true, work);
   switch (request.type) {
     case 'summarize':
-      return startRun(slot, (signal) => runSummary(post, tabId, request, signal));
+      return run((signal) => runSummary(post, tabId, request, signal));
     case 'retry':
-      return startRun(slot, (signal) => runSummary(post, tabId, { retry: true, confirmed: true }, signal));
+      return run((signal) => runSummary(post, tabId, { retry: true, confirmed: true }, signal));
     case 'stop':
       return stopRun(slot);
     case 'chat':
-      return startRun(slot, (signal) => runChat(post, tabId, request.text, signal));
+      return run((signal) => runChat(post, tabId, request.text, signal));
     case 'setLevel':
       // The new level is kept even when the summary for it is stopped before it starts.
-      return startRun(slot, async (signal) => {
+      return run(async (signal) => {
         await changeSettings({ level: request.level });
         await runSummary(post, tabId, {}, signal);
       });
@@ -309,7 +338,9 @@ async function handlePanelRequest(post: Post<PanelMessage>, tabId: number, reque
       if (summaryModelId) await updateTab(tabId, (tab) => ({ ...tab!, shownModelId: summaryModelId }));
       const settings = await readSettings();
       await changeSettings({ modelByProvider: { ...settings.modelByProvider, anthropic: request.modelId } });
-      return post({ type: 'state', state: await panelState(tabId) });
+      const state = await panelState(tabId);
+      // A run in progress decides what the screen shows, so a stored summary must not end its wait.
+      return post({ type: 'state', state: runs.has(slot) ? withoutSummary(state) : state });
     }
     case 'saveKey':
       return saveKey(post, tabId, request.key);
@@ -359,23 +390,25 @@ function connectPanel(port: Port) {
     );
 }
 
-/** Navigation compares against the stored URL, so the panel stores the page it opens on. */
+/** Navigation compares against the stored URL, so the panel stores the page it opens on, with no URL for one it cannot read. */
 async function recordPage(tabId: number): Promise<void> {
-  const url = await pageUrl(tabId);
-  if (url) await tabForPage(tabId, url, false);
+  await tabForPage(tabId, (await pageUrl(tabId)) ?? '', false);
 }
 
 /** A new page keeps the tab's summaries for later, but its chat and content belong to the old page. */
 async function followNavigation(tabId: number, url: string): Promise<void> {
   const stored = await readTab(tabId);
-  if (!stored || stored.url === url) return;
+  // Pages it cannot read all have no URL, so one load of them is never the same page as the last.
+  if (!stored || (url && stored.url === url)) return;
   await stopRun(`panel:${tabId}`);
   await updateTab(tabId, (tab) => ({ url, scope: 'page', summaries: tab!.summaries, chat: [] }));
   openPanels.get(tabId)?.forEach((post) => post({ type: 'navigated' }));
 }
 
-function followTab(tabId: number, change: Browser.tabs.OnUpdatedInfo): Promise<void> {
-  return change.url ? followNavigation(tabId, withoutFragment(change.url)) : Promise.resolve();
+async function followTab(tabId: number, change: Browser.tabs.OnUpdatedInfo): Promise<void> {
+  if (change.url) return followNavigation(tabId, withoutFragment(change.url));
+  // Chrome leaves out the address of a page the extension cannot read, such as chrome://, so a load with none is a new page.
+  if (change.status === 'loading' && !(await pageUrl(tabId))) return followNavigation(tabId, '');
 }
 
 /** Chrome allows open() only inside the user's click, so neither call may wait for anything first. */
@@ -393,18 +426,36 @@ async function summarizeInOpenPanels(tabId: number): Promise<void> {
   const panels = openPanels.get(tabId);
   if (!panels?.size) return;
   const post: Post<PanelMessage> = (message) => panels.forEach((panelPost) => panelPost(message));
-  post({ type: 'state', state: await panelState(tabId) });
-  await startRun(`panel:${tabId}`, (signal) => runSummary(post, tabId, {}, signal));
+  try {
+    await startPanelRun(post, tabId, false, async (signal) => {
+      post({ type: 'state', state: await panelState(tabId) });
+      await runSummary(post, tabId, {}, signal);
+    });
+  } catch (error) {
+    reportUnexpected(post, error);
+  }
 }
 
+/** An open panel switches to the selection and shows the popup's failure, with no new request. */
+async function showFailureInOpenPanels(tabId: number): Promise<void> {
+  await stopRun(`panel:${tabId}`);
+  const state = await panelState(tabId);
+  openPanels.get(tabId)?.forEach((post) => post({ type: 'state', state }));
+}
+
+/** Only a failure fixed in the menu opens the panel on it. Anything else from the page is ignored. */
+const menuFailure = (kind: unknown) =>
+  typeof FAILURES[kind as WorkerErrorKind]?.action === 'object' ? (kind as WorkerErrorKind) : undefined;
+
 function openPanelForSelection(message: unknown, sender: Browser.runtime.MessageSender) {
-  const { type, text } = (message ?? {}) as Partial<OpenPanelMessage>;
+  const { type, text, failure: kind } = (message ?? {}) as Partial<OpenPanelMessage>;
   const tab = sender.tab;
   if (type !== 'openPanel' || typeof text !== 'string' || tab?.id === undefined || !tab.url) return;
   const tabId = tab.id;
+  const failure = menuFailure(kind);
   openPanelOn(tabId);
-  startSelection(tabId, withoutFragment(tab.url), text)
-    .then(() => summarizeInOpenPanels(tabId))
+  startSelection(tabId, withoutFragment(tab.url), text, failure)
+    .then(() => (failure ? showFailureInOpenPanels(tabId) : summarizeInOpenPanels(tabId)))
     .catch(console.error);
 }
 

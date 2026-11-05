@@ -20,9 +20,13 @@ const failed = (kind: Extract<PanelEvent, { type: 'error' }>['kind'], stream?: '
 const requested = (request: Extract<PanelEvent, { type: 'requested' }>['request']): PanelEvent => ({ type: 'requested', request });
 
 const run = (...events: PanelEvent[]) => events.reduce(reduce, initialPanel);
+const started: PanelEvent = { type: 'started', requested: true };
+/** A request that starts a run, and the worker starting it. */
+const asked = (request: Extract<PanelEvent, { type: 'requested' }>['request']) => [requested(request), started];
+const ask = (panel: Panel, request: Extract<PanelEvent, { type: 'requested' }>['request']) => asked(request).reduce(reduce, panel);
 
 /** Open with a saved key and no stored summary: the panel starts a summary. */
-const waiting = () => run(workerState(), requested({ type: 'summarize' }));
+const waiting = () => run(workerState(), ...asked({ type: 'summarize' }));
 const streaming = () => reduce(waiting(), delta('- Plants'));
 const complete = () => reduce(streaming(), done('complete'));
 
@@ -114,7 +118,7 @@ describe('panel state', () => {
     });
 
     it('waits again on Continue', () => {
-      const panel = reduce(reach.confirmLong(), requested({ type: 'summarize', confirmed: true }));
+      const panel = ask(reach.confirmLong(), { type: 'summarize', confirmed: true });
       expect(panel).toMatchObject({ status: 'waiting', confirmTokens: undefined });
     });
 
@@ -123,7 +127,7 @@ describe('panel state', () => {
     });
 
     it('waits on Sum it up from ready', () => {
-      expect(reduce(reach.ready(), requested({ type: 'summarize' })).status).toBe('waiting');
+      expect(ask(reach.ready(), { type: 'summarize' }).status).toBe('waiting');
     });
   });
 
@@ -180,7 +184,7 @@ describe('panel state', () => {
     });
 
     it.each(['incomplete', 'error'] as const)('waits again on Retry from %s', (status) => {
-      const panel = reduce(reach[status](), requested({ type: 'retry' }));
+      const panel = ask(reach[status](), { type: 'retry' });
       expect(panel).toMatchObject({ status: 'waiting', summary: undefined, error: undefined });
     });
 
@@ -190,12 +194,12 @@ describe('panel state', () => {
     });
 
     it('waits on a level change and remembers the level', () => {
-      const panel = reduce(complete(), requested({ type: 'setLevel', level: 'medium' }));
+      const panel = ask(complete(), { type: 'setLevel', level: 'medium' });
       expect(panel).toMatchObject({ status: 'waiting', summary: undefined, settings: { level: 'medium' } });
     });
 
     it('shows a cached summary for the new level at once', () => {
-      const panel = [requested({ type: 'setLevel', level: 'medium' }), workerState({ level: 'medium', summary: { text: 'Cached', status: 'complete' } })].reduce(
+      const panel = [...asked({ type: 'setLevel', level: 'medium' }), workerState({ level: 'medium', summary: { text: 'Cached', status: 'complete' } })].reduce(
         reduce,
         complete(),
       );
@@ -203,7 +207,7 @@ describe('panel state', () => {
     });
 
     it('keeps a level change during chat', () => {
-      const panel = reduce(complete(), requested({ type: 'setLevel', level: 'eli5' }));
+      const panel = ask(complete(), { type: 'setLevel', level: 'eli5' });
       expect(panel.chat).toEqual(complete().chat);
     });
   });
@@ -213,61 +217,61 @@ describe('panel state', () => {
     const withChat = () => run(workerState({ summary: { text: '- Old', status: 'complete' }, chat }));
 
     it('brings the summary and chat back with the failure above them after a level change', () => {
-      const panel = [requested({ type: 'setLevel', level: 'medium' }), failed('rate', 'summary')].reduce(reduce, withChat());
+      const panel = [...asked({ type: 'setLevel', level: 'medium' }), failed('rate', 'summary')].reduce(reduce, withChat());
       expect(panel).toMatchObject({ status: 'complete', summary: { text: '- Old' }, chat, error: { kind: 'rate' }, hidden: undefined });
       expect(chatOpen(panel)).toBe(true);
     });
 
     it('brings back Incomplete text when Retry fails', () => {
-      const panel = [requested({ type: 'retry' }), failed('offline', 'summary')].reduce(reduce, reach.incomplete());
+      const panel = [...asked({ type: 'retry' }), failed('offline', 'summary')].reduce(reduce, reach.incomplete());
       expect(panel).toMatchObject({ status: 'incomplete', summary: { text: '- Plants' }, error: { kind: 'offline' } });
     });
 
     it('brings back the summary when the switched model fails', () => {
-      const panel = [requested({ type: 'summarize' }), failed('unavailable', 'summary')].reduce(reduce, complete());
+      const panel = [...asked({ type: 'summarize' }), failed('unavailable', 'summary')].reduce(reduce, complete());
       expect(panel).toMatchObject({ status: 'complete', summary: { text: '- Plants', modelId: HAIKU }, error: { kind: 'unavailable' } });
     });
 
     it('brings back a page that cannot be read as a failure over the summary', () => {
-      const panel = [requested({ type: 'retry' }), failed('restricted', 'summary')].reduce(reduce, complete());
+      const panel = [...asked({ type: 'retry' }), failed('restricted', 'summary')].reduce(reduce, complete());
       expect(panel).toMatchObject({ status: 'complete', error: { kind: 'restricted' } });
     });
 
     it('brings back stopped text as Incomplete when a level change during the stream fails', () => {
-      const panel = [requested({ type: 'setLevel', level: 'eli5' }), failed('rate', 'summary')].reduce(reduce, streaming());
+      const panel = [...asked({ type: 'setLevel', level: 'eli5' }), failed('rate', 'summary')].reduce(reduce, streaming());
       expect(panel).toMatchObject({ status: 'incomplete', summary: { text: '- Plants' } });
     });
 
     it('keeps refused text closed to chat when it comes back', () => {
       const refused = run(workerState({ summary: { text: '- Some', status: 'refused' } }));
-      const panel = [requested({ type: 'summarize' }), failed('rate', 'summary')].reduce(reduce, refused);
+      const panel = [...asked({ type: 'summarize' }), failed('rate', 'summary')].reduce(reduce, refused);
       expect(panel).toMatchObject({ status: 'error', summary: { text: '- Some' }, error: { kind: 'rate' } });
       expect(chatOpen(panel)).toBe(false);
     });
 
     it('keeps the summary out of sight across a second request', () => {
-      const panel = [requested({ type: 'retry' }), requested({ type: 'retry' }), failed('rate', 'summary')].reduce(reduce, complete());
+      const panel = [...asked({ type: 'retry' }), ...asked({ type: 'retry' }), failed('rate', 'summary')].reduce(reduce, complete());
       expect(panel).toMatchObject({ status: 'complete', summary: { text: '- Plants' } });
     });
 
     it('keeps the summary out of sight across a model switch while waiting', () => {
-      const panel = [requested({ type: 'retry' }), workerState({ modelId: SONNET }), failed('rate', 'summary')].reduce(reduce, complete());
+      const panel = [...asked({ type: 'retry' }), workerState({ modelId: SONNET }), failed('rate', 'summary')].reduce(reduce, complete());
       expect(panel).toMatchObject({ status: 'complete', summary: { text: '- Plants' } });
     });
 
     it('does not bring a selection summary back after a whole page request', () => {
       const selection = run(workerState({ scope: 'selection', summary: { text: 'Sel', status: 'complete' } }));
-      const panel = [requested({ type: 'summarize', wholePage: true }), failed('rate', 'summary')].reduce(reduce, selection);
+      const panel = [...asked({ type: 'summarize', wholePage: true }), failed('rate', 'summary')].reduce(reduce, selection);
       expect(panel).toMatchObject({ status: 'error', summary: undefined });
     });
 
     it('replaces the old summary once new text arrives', () => {
-      const panel = [requested({ type: 'retry' }), delta('New'), failed('refused', 'summary')].reduce(reduce, complete());
+      const panel = [...asked({ type: 'retry' }), delta('New'), failed('refused', 'summary')].reduce(reduce, complete());
       expect(panel).toMatchObject({ status: 'error', summary: { text: 'New' }, hidden: undefined });
     });
 
     it('offers a fresh start when stopped before new text', () => {
-      const panel = [requested({ type: 'setLevel', level: 'medium' }), done('incomplete')].reduce(reduce, complete());
+      const panel = [...asked({ type: 'setLevel', level: 'medium' }), done('incomplete')].reduce(reduce, complete());
       expect(panel).toMatchObject({ status: 'ready', summary: undefined, hidden: undefined });
     });
   });
@@ -322,7 +326,7 @@ describe('panel state', () => {
     });
 
     it('waits on Sum it up from new page', () => {
-      expect(reduce(reach.newPage(), requested({ type: 'summarize' })).status).toBe('waiting');
+      expect(ask(reach.newPage(), { type: 'summarize' }).status).toBe('waiting');
     });
 
     it('makes no request of its own on a later state', () => {
@@ -335,7 +339,7 @@ describe('panel state', () => {
       const selection = run(
         workerState({ scope: 'selection', chat: [{ role: 'user', text: 'Q' }], summary: { text: 'Sel', status: 'complete' } }),
       );
-      const panel = reduce(selection, requested({ type: 'summarize', wholePage: true }));
+      const panel = ask(selection, { type: 'summarize', wholePage: true });
       expect(panel).toMatchObject({ status: 'waiting', chat: [], settings: { scope: 'page' } });
     });
 
@@ -346,19 +350,19 @@ describe('panel state', () => {
 
     it('keeps the selection scope on a plain summarize', () => {
       const selection = run(workerState({ scope: 'selection' }));
-      expect(reduce(selection, requested({ type: 'summarize' })).settings?.scope).toBe('selection');
+      expect(ask(selection, { type: 'summarize' }).settings?.scope).toBe('selection');
     });
   });
 
   describe('chat', () => {
-    const asked = () => reduce(complete(), requested({ type: 'chat', text: 'Why?' }));
+    const chatAsked = () => ask(complete(), { type: 'chat', text: 'Why?' });
 
     it('shows the question at once and waits for the answer', () => {
-      expect(asked()).toMatchObject({ chat: [{ role: 'user', text: 'Why?' }], reply: '' });
+      expect(chatAsked()).toMatchObject({ chat: [{ role: 'user', text: 'Why?' }], reply: '' });
     });
 
     it('streams the answer, then adds it to the chat', () => {
-      const panel = [chatDelta('Because'), chatDelta(' light'), done('complete', 'chat')].reduce(reduce, asked());
+      const panel = [chatDelta('Because'), chatDelta(' light'), done('complete', 'chat')].reduce(reduce, chatAsked());
       expect(panel).toMatchObject({
         reply: undefined,
         chat: [{ role: 'user', text: 'Why?' }, { role: 'assistant', text: 'Because light' }],
@@ -366,11 +370,11 @@ describe('panel state', () => {
     });
 
     it('keeps no empty answer when stopped before any text', () => {
-      expect(reduce(asked(), done('incomplete', 'chat')).chat).toEqual([{ role: 'user', text: 'Why?' }]);
+      expect(reduce(chatAsked(), done('incomplete', 'chat')).chat).toEqual([{ role: 'user', text: 'Why?' }]);
     });
 
     it('keeps the summary and offers the question again when the answer fails', () => {
-      const panel = reduce(asked(), failed('rate', 'chat'));
+      const panel = reduce(chatAsked(), failed('rate', 'chat'));
       expect(panel).toMatchObject({
         status: 'complete',
         summary: { text: '- Plants' },
@@ -381,7 +385,7 @@ describe('panel state', () => {
     });
 
     it('keeps a partial answer when the answer fails midway', () => {
-      const panel = [chatDelta('Part'), failed('cutoff', 'chat')].reduce(reduce, asked());
+      const panel = [chatDelta('Part'), failed('cutoff', 'chat')].reduce(reduce, chatAsked());
       expect(panel.chat).toEqual([{ role: 'user', text: 'Why?' }, { role: 'assistant', text: 'Part' }]);
       expect(panel.error).toEqual({ kind: 'cutoff', stream: 'chat' });
     });
@@ -395,7 +399,7 @@ describe('panel state', () => {
     });
 
     it('keeps the answer on screen when a state arrives mid-answer', () => {
-      const panel = [chatDelta('Part'), workerState({ modelId: SONNET })].reduce(reduce, asked());
+      const panel = [chatDelta('Part'), workerState({ modelId: SONNET })].reduce(reduce, chatAsked());
       expect(panel).toMatchObject({ reply: 'Part', chat: [{ role: 'user', text: 'Why?' }] });
     });
 
@@ -412,7 +416,7 @@ describe('panel state', () => {
     });
 
     it('is closed while an answer streams in', () => {
-      expect(chatOpen(asked())).toBe(false);
+      expect(chatOpen(chatAsked())).toBe(false);
     });
 
     it('is closed after a refusal kept text', () => {
@@ -435,7 +439,7 @@ describe('panel state', () => {
     });
 
     it('drops a chat answer the worker lost and keeps the summary', () => {
-      const panel = reduce(reduce(complete(), requested({ type: 'chat', text: 'Q' })), { type: 'disconnected' });
+      const panel = reduce(ask(complete(), { type: 'chat', text: 'Q' }), { type: 'disconnected' });
       expect(panel).toMatchObject({ status: 'complete', reply: undefined });
     });
   });
@@ -443,5 +447,69 @@ describe('panel state', () => {
   it('changes nothing on Stop until the worker answers', () => {
     const panel = streaming();
     expect(reduce(panel, requested({ type: 'stop' }))).toBe(panel);
+  });
+
+  describe('a request that replaces a run', () => {
+    const started = { type: 'started', requested: true } as const;
+    const replacing = () => reduce(streaming(), requested({ type: 'setLevel', level: 'medium' }));
+
+    it('ignores the end of the replaced run, and brings its text back if the new run fails', () => {
+      const ended = reduce(replacing(), done('incomplete'));
+      expect(ended).toMatchObject({ status: 'waiting', hidden: { summary: { text: '- Plants' } } });
+      const failedRun = [started, failed('rate', 'summary')].reduce(reduce, ended);
+      expect(failedRun).toMatchObject({ status: 'incomplete', summary: { text: '- Plants' }, error: { kind: 'rate' } });
+    });
+
+    it('ignores late text from the replaced run, and shows the new run text alone', () => {
+      const late = reduce(replacing(), delta(' turn light'));
+      expect(late).toMatchObject({ status: 'waiting', summary: undefined });
+      expect([started, delta('## New')].reduce(reduce, late).summary?.text).toBe('## New');
+    });
+
+    it('ignores late chat text once a summary request replaces the answer', () => {
+      const panel = [requested({ type: 'setLevel', level: 'medium' }), chatDelta('late')].reduce(reduce, ask(complete(), { type: 'chat', text: 'Why?' }));
+      expect(panel.reply).toBeUndefined();
+    });
+
+    it('waits for every request it sent, so a run the panel already replaced cannot write either', () => {
+      const twice = [requested({ type: 'retry' }), started, delta('Replaced')].reduce(reduce, replacing());
+      expect(twice).toMatchObject({ status: 'waiting', summary: undefined });
+    });
+
+    it('takes only the settings from a state until the new run starts', () => {
+      const panel = reduce(replacing(), workerState({ summary: { text: '- Old', status: 'complete' } }));
+      expect(panel).toMatchObject({ status: 'waiting', summary: undefined });
+    });
+
+    it('still shows a failure that belongs to no run', () => {
+      expect(reduce(replacing(), failed('unavailable')).error).toEqual({ kind: 'unavailable' });
+    });
+
+    it('forgets requests a restarted worker lost', () => {
+      const panel = [{ type: 'disconnected' } as const, delta('- New')].reduce(reduce, replacing());
+      expect(panel.summary?.text).toBe('- New');
+      const idle = [requested({ type: 'retry' }), { type: 'disconnected' } as const, delta('- Also new')].reduce(reduce, reach.ready());
+      expect(idle.summary?.text).toBe('- Also new');
+    });
+  });
+
+  it('opens on a popup failure with its menu link, and asks for no summary', () => {
+    const panel = run(workerState({ scope: 'selection', failure: 'auth' }));
+    expect(panel).toMatchObject({ status: 'error', error: { kind: 'auth' }, startPending: false, summary: undefined, openMenu: true });
+    expect(ask(panel, { type: 'summarize' }).openMenu).toBeUndefined();
+  });
+
+  describe('a run the worker starts after "More" on the page', () => {
+    const more = { type: 'started', requested: false } as const;
+
+    it('hides the summary on screen and waits, keeping it in case the run fails', () => {
+      const panel = reduce(complete(), more);
+      expect(panel).toMatchObject({ status: 'waiting', summary: undefined, hidden: { summary: { text: '- Plants' } } });
+    });
+
+    it('leaves the panel alone when the panel has its own request waiting to replace it', () => {
+      const panel = reduce(complete(), requested({ type: 'retry' }));
+      expect(reduce(panel, more)).toBe(panel);
+    });
   });
 });

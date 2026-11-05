@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import background from '../src/entrypoints/background';
-import type { PanelState } from '../src/lib/messages';
+import { RUN_REQUESTS, type PanelRequest, type PanelState } from '../src/lib/messages';
 import { readTab, startSelection, summaryKey, updateTab } from '../src/lib/session';
 import { sseText } from './provider-helpers';
 
@@ -516,6 +516,33 @@ describe('page summary', () => {
     expect((await readTab(TAB_ID))?.summaries).toEqual({});
   });
 
+  const runRequests: Record<string, PanelRequest> = {
+    summarize: { type: 'summarize' },
+    retry: { type: 'retry' },
+    chat: { type: 'chat', text: 'Why?' },
+    setLevel: { type: 'setLevel', level: 'medium' },
+  };
+
+  it.each([...RUN_REQUESTS])('answers a %s request with started before anything else', async (type) => {
+    stubProvider();
+    const panel = openPanel();
+    await panel.next('state');
+    panel.send(runRequests[type]!);
+    await vi.waitFor(() => expect(panel.messages.length).toBeGreaterThan(1));
+    expect(panel.messages[1]).toEqual({ type: 'started', requested: true });
+    await panel.next('done');
+  });
+
+  it('tells the panel a requested run has started, before anything else from that run', async () => {
+    stubProvider();
+    const panel = openPanel();
+    await panel.next('state');
+    panel.send({ type: 'summarize' });
+    await panel.next('done');
+    expect(panel.messages.map(({ type }) => type)).toEqual(['state', 'started', 'state', 'delta', 'done']);
+    expect(panel.messages[1]).toEqual({ type: 'started', requested: true });
+  });
+
   describe('a run in progress', () => {
     async function startHeld() {
       const held = heldReply();
@@ -763,7 +790,7 @@ describe('page summary', () => {
               : [{ result: null }],
         );
         await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(panel.messages.filter(({ type }) => type !== 'state' && type !== 'done')).toEqual([]);
+        expect(panel.messages.filter(({ type }) => !['state', 'started', 'done'].includes(type))).toEqual([]);
         expect(panel.messages.filter(({ type }) => type === 'state')).toHaveLength(1);
       },
     );
@@ -805,6 +832,23 @@ describe('page summary', () => {
       panel.send({ type: 'setModel', modelId: 'claude-opus-5-5' });
       return panel;
     }
+
+    it('sends no stored summary while a run is in progress, so the run keeps the screen', async () => {
+      stubProvider(sseText([textDelta('Haiku text'), stop('end_turn')]));
+      const panel = openPanel();
+      panel.send({ type: 'summarize' });
+      await panel.next('done');
+      const held = heldReply();
+      const calls = stubProvider(held.response);
+      panel.send({ type: 'retry' });
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      panel.send({ type: 'setModel', modelId: 'claude-opus-5-5' });
+      await switched(panel, 'claude-opus-5-5');
+      const state = stateOf(panel.messages.at(-1)!);
+      expect(state.summary).toBeUndefined();
+      expect(state.summaryModelId).toBeUndefined();
+      held.end();
+    });
 
     it('keeps the summary on screen and names the model that wrote it', async () => {
       const panel = await summarizeThenSwitch();
@@ -1277,10 +1321,86 @@ describe('opening the panel from the page', () => {
     const panel = openPanel();
     await panel.next('state');
     fromPage({ type: 'openPanel', text: SELECTED }, { id: TAB_ID, url: PAGE_URL });
+    expect(await panel.next('started')).toEqual({ type: 'started', requested: false });
     expect(stateOf(await panel.next('state', 2))).toMatchObject({ scope: 'selection', chat: [] });
+    expect(panel.messages.findIndex(({ type }) => type === 'started')).toBe(1);
     expect(await panel.next('done')).toMatchObject({ stream: 'summary', status: 'complete' });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.body.messages[0]!.content).toContain(SELECTED);
+  });
+
+  it('reports an unexpected failure of that summary to the open panel, so it does not wait forever', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await saveStoredKey();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Unexpected')));
+    const panel = openPanel();
+    await panel.next('state');
+    fromPage({ type: 'openPanel', text: SELECTED }, { id: TAB_ID, url: PAGE_URL });
+    expect(await panel.next('error')).toEqual({ type: 'error', kind: 'unavailable' });
+    expect(log).toHaveBeenCalledOnce();
+    panel.close();
+  });
+
+  describe('for a popup failure the menu can fix', () => {
+    const fixable = (failure: unknown, tab = { id: TAB_ID, url: PAGE_URL }) =>
+      fromPage({ type: 'openPanel', text: SELECTED, failure }, tab);
+
+    it('opens a panel already open on the failure and the selection, with no call', async () => {
+      await saveStoredKey();
+      const calls = stubProvider();
+      const panel = openPanel();
+      await panel.next('state');
+      fixable('refused');
+      const state = stateOf(await panel.next('state', 2));
+      expect(state).toMatchObject({ scope: 'selection', failure: 'refused', chat: [] });
+      expect(state.summary).toBeUndefined();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(calls).toEqual([]);
+      expect(panel.messages.some(({ type }) => type === 'started')).toBe(false);
+    });
+
+    it('ends a run in the open panel first', async () => {
+      await saveStoredKey();
+      const held = heldReply();
+      const calls = stubProvider(held.response);
+      const panel = openPanel();
+      panel.send({ type: 'summarize' });
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      held.abortOn(calls[0]!.signal!);
+      fixable('auth');
+      await vi.waitFor(() => expect(panel.messages.at(-1)).toMatchObject({ type: 'state', state: { failure: 'auth' } }));
+      expect(calls[0]!.signal!.aborted).toBe(true);
+    });
+
+    it('gives the failure to a panel that opens later, until the next summary', async () => {
+      await saveStoredKey();
+      const calls = stubProvider();
+      fixable('modelGone', { id: LONE_TAB, url: PAGE_URL });
+      await vi.waitFor(async () => expect((await readTab(LONE_TAB))?.failure).toBe('modelGone'));
+      const panel = connect(`panel:${LONE_TAB}`);
+      expect(stateOf(await panel.next('state')).failure).toBe('modelGone');
+      panel.send({ type: 'summarize' });
+      await panel.next('done');
+      expect(calls).toHaveLength(1);
+      expect((await readTab(LONE_TAB))?.failure).toBeUndefined();
+      expect(stateOf(await connect(`panel:${LONE_TAB}`).next('state')).failure).toBeUndefined();
+      panel.close();
+    });
+
+    it.each([
+      ['a failure Retry fixes', 'rate'],
+      ['an unknown failure', 'whatever'],
+      ['a name from the object prototype', 'constructor'],
+    ])('summarizes as usual for %s', async (_name, failure) => {
+      await saveStoredKey();
+      const calls = stubProvider();
+      const panel = openPanel();
+      await panel.next('state');
+      fixable(failure);
+      await panel.next('done');
+      expect(calls).toHaveLength(1);
+      expect((await readTab(TAB_ID))?.failure).toBeUndefined();
+    });
   });
 
   it('logs a selection that cannot be stored', async () => {
@@ -1362,11 +1482,23 @@ describe('navigation', () => {
     expect(panel.messages.some(({ type }) => type === 'navigated')).toBe(false);
   });
 
-  it('does not record a page whose URL cannot be read', async () => {
+  it('records a page it cannot read with no URL, so leaving it is a new page', async () => {
     tabsGet.mockResolvedValue({ id: TAB_ID });
-    await openPanel().next('state');
-    await settle();
-    expect(await readTab(TAB_ID)).toBeUndefined();
+    const panel = openPanel();
+    await panel.next('state');
+    await vi.waitFor(async () => expect((await readTab(TAB_ID))?.url).toBe(''));
+    tabsGet.mockResolvedValue({ id: TAB_ID, url: PAGE_URL });
+    navigate(PAGE_URL, 'loading');
+    await panel.next('navigated');
+  });
+
+  it('counts a load of one unreadable page after another as a new page', async () => {
+    tabsGet.mockResolvedValue({ id: TAB_ID });
+    const panel = openPanel();
+    await panel.next('state');
+    await vi.waitFor(async () => expect((await readTab(TAB_ID))?.url).toBe(''));
+    onUpdated.fire(TAB_ID, { status: 'loading' }, { id: TAB_ID });
+    await panel.next('navigated');
   });
 
   it('shows nothing when the panel is closed, but still clears the old chat', async () => {
@@ -1401,6 +1533,19 @@ describe('navigation', () => {
     expect(calls[0]?.signal?.aborted).toBe(true);
     const navigatedAt = panel.messages.findIndex(({ type }) => type === 'navigated');
     expect(panel.messages.slice(navigatedAt + 1).some(({ type }) => type === 'delta')).toBe(false);
+  });
+
+  it('treats a load of a page it cannot read, such as chrome://, as a new page, and the next readable page too', async () => {
+    const panel = await openWithSummary();
+    tabsGet.mockResolvedValue({ id: TAB_ID });
+    onUpdated.fire(TAB_ID, { status: 'loading' }, { id: TAB_ID });
+    await panel.next('navigated');
+    expect((await readTab(TAB_ID))?.url).toBe('');
+    onUpdated.fire(TAB_ID, { status: 'complete' }, { id: TAB_ID });
+    await settle();
+    expect(panel.messages.filter(({ type }) => type === 'navigated')).toHaveLength(1);
+    navigate(PAGE_URL, 'loading');
+    await panel.next('navigated', 2);
   });
 
   it('ignores a tab it has no record of', async () => {

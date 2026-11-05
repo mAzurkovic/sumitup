@@ -80,6 +80,11 @@ beforeAll(() => {
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
     return this.classList.contains('popup') ? popupHeight : 30;
   });
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains('popup') ? 320 : 110;
+  });
+  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1000);
+  vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(800);
   contentScript.main(undefined as never);
 });
 
@@ -163,6 +168,12 @@ describe('selection button', () => {
     selectText(words(25));
     expect(trigger().classList.contains('above')).toBe(false);
     expect([trigger().style.top, trigger().style.left]).toEqual(['38px', '8px']);
+  });
+
+  it('stays inside the right edge for a selection near it', () => {
+    Object.assign(rect, { top: 300, bottom: 320, left: 950 });
+    selectText(words(25));
+    expect(trigger().style.left).toBe(`${1000 - 110 - 8}px`);
   });
 
   it('appears for text on the page while some other element has focus', () => {
@@ -271,9 +282,63 @@ describe('popup', () => {
 
   it('shows a failure with no Retry when retrying cannot help', () => {
     openPopup();
-    port().receive({ type: 'error', kind: 'auth' });
-    expect(popupStatus().textContent).toBe('API key rejected');
+    port().receive({ type: 'error', kind: 'noContent' });
+    expect(popupStatus().textContent).toBe('Not enough text to summarize');
     expect(retry().hidden).toBe(true);
+    expect(find('.more').textContent).toBe('More');
+  });
+
+  it.each([
+    ['auth', 'API key rejected', 'Check your key'],
+    ['modelGone', 'Model unavailable', 'Choose another model'],
+    ['refused', 'Provider declined this content', 'Choose another model'],
+  ] as const)('shows a %s failure with a button that opens the panel on it, with no new request', (kind, message, action) => {
+    const selected = words(25);
+    openPopup(selected);
+    port().receive({ type: 'error', kind });
+    expect(popupStatus().textContent).toBe(message);
+    expect(retry().hidden).toBe(true);
+    expect(find('.more').textContent).toBe(action);
+    trustedClick(find('.more'));
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith({ type: 'openPanel', text: selected, failure: kind });
+  });
+
+  it('opens the panel for a new summary on "More" after a failure that Retry fixed', () => {
+    const selected = words(25);
+    openPopup(selected);
+    port().receive({ type: 'error', kind: 'auth' });
+    press('Escape');
+    openPopup(selected);
+    trustedClick(find('.more'));
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith({ type: 'openPanel', text: selected });
+  });
+
+  it('stays inside the bottom edge for a selection that reaches it', () => {
+    Object.assign(rect, { top: 10, bottom: 790, left: 100 });
+    openPopup();
+    expect(popup().classList.contains('above')).toBe(false);
+    expect(popup().style.top).toBe(`${800 - 100 - 8}px`);
+  });
+
+  it('stays inside the top edge when the window is shorter than the popup', () => {
+    Object.assign(rect, { top: 10, bottom: 30, left: 100 });
+    popupHeight = 900;
+    openPopup();
+    expect(popup().style.top).toBe('8px');
+  });
+
+  it('names the panel button "More" again when the popup asks again', () => {
+    openPopup();
+    port().receive({ type: 'error', kind: 'auth' });
+    press('Escape');
+    openPopup();
+    expect(find('.more').textContent).toBe('More');
+  });
+
+  it('stays inside the right edge when it opens near it', () => {
+    Object.assign(rect, { top: 300, bottom: 320, left: 900 });
+    openPopup();
+    expect(popup().style.left).toBe(`${1000 - 320 - 8}px`);
   });
 
   it('keeps cut-off text, labeled Incomplete, with Retry', () => {
