@@ -75,13 +75,19 @@ export class Extension {
     const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
     this.connections.push(browser);
     const pages = browser.contexts().flatMap((context) => context.pages());
-    return Promise.all(
+    const found = await Promise.all(
       pages.map(async (page) => {
-        const session = await page.context().newCDPSession(page);
-        const { targetInfo } = (await session.send('Target.getTargetInfo')) as { targetInfo: { targetId: string } };
-        return { page, targetId: targetInfo.targetId };
+        try {
+          const session = await page.context().newCDPSession(page);
+          const { targetInfo } = (await session.send('Target.getTargetInfo')) as { targetInfo: { targetId: string } };
+          return [{ page, targetId: targetInfo.targetId }];
+        } catch {
+          // The page closed after the listing, as a panel does while it closes.
+          return [];
+        }
       }),
     );
+    return found.flat();
   }
 
   /** The panel Chrome opened for the tab, other than any panel already returned. */
@@ -102,9 +108,11 @@ export class Extension {
   async closePanel(panel: Page, tab: Page): Promise<void> {
     const tabId = await this.tabIdOf(tab);
     await panel.getByRole('button', { name: 'Close panel' }).click();
-    for (let tries = 0; tries < 50 && (await this.panelsNow(tabId)).length; tries++) {
+    for (let tries = 0; tries < 50; tries++) {
+      if (!(await this.panelsNow(tabId)).length) return;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    throw new Error(`The side panel on tab ${tabId} did not close`);
   }
 
   /** Panels open now on the tab. */
