@@ -1,4 +1,4 @@
-import type { PanelMessage, PanelRequest, PanelState, StreamName, WorkerErrorKind } from '@/lib/messages';
+import { RUN_REQUESTS, type PanelMessage, type PanelRequest, type PanelState, type StreamName, type WorkerErrorKind } from '@/lib/messages';
 import type { ChatMessage } from '@/lib/providers/types';
 
 export type Status =
@@ -42,23 +42,37 @@ export interface Panel {
   reply?: string;
   /** The panel asks for a summary with no click when it first opens, and right after a key is saved. */
   startPending: boolean;
+  /** A popup failure opened the panel to fix it, so the model and key menu opens with no click. */
+  openMenu?: boolean;
+  /**
+   * Requests sent whose run has not started yet. Until it starts, stream messages come from the run it replaces,
+   * and the panel drops them.
+   */
+  unstarted: number;
 }
 
 export type PanelEvent = PanelMessage | { type: 'requested'; request: PanelRequest } | { type: 'cancel' } | { type: 'disconnected' };
 
-export const initialPanel: Panel = { status: 'waiting', videoExcluded: false, chat: [], startPending: false };
+export const initialPanel: Panel = { status: 'waiting', videoExcluded: false, chat: [], startPending: false, unstarted: 0 };
 
-const cleared = { summary: undefined, hidden: undefined, error: undefined, confirmTokens: undefined, reply: undefined } as const;
+const cleared = {
+  summary: undefined,
+  hidden: undefined,
+  error: undefined,
+  confirmTokens: undefined,
+  reply: undefined,
+  openMenu: undefined,
+} as const;
 
 function needsKey(panel: Panel): Panel {
   return { ...panel, ...cleared, status: 'needsKey', chat: [], startPending: false };
 }
 
-function applyState(panel: Panel, { chat, videoExcluded, confirmTokens, summary, summaryModelId, ...settings }: PanelState): Panel {
+function applyState(panel: Panel, { chat, videoExcluded, confirmTokens, summary, summaryModelId, failure, ...settings }: PanelState): Panel {
   const next = { ...panel, settings, videoExcluded };
   if (!settings.keyEnding) return needsKey(next);
-  // A run is writing to the screen, so only the settings change, as after a model switch mid-stream.
-  if (panel.status === 'streaming' || panel.reply !== undefined) return next;
+  // A run is writing to the screen, or about to, so only the settings change, as after a model switch mid-stream.
+  if (panel.status === 'streaming' || panel.reply !== undefined || panel.unstarted) return next;
 
   // A failure on screen stays until something replaces it, so a model switch or reconnect keeps its message.
   const restored = { ...next, chat };
@@ -68,6 +82,7 @@ function applyState(panel: Panel, { chat, videoExcluded, confirmTokens, summary,
     if (summary.status === 'refused') return { ...shown, status: 'error', error: { kind: 'refused' } };
     return { ...shown, status: summary.status };
   }
+  if (failure) return { ...restored, ...cleared, status: 'error', error: { kind: failure }, startPending: false, openMenu: true };
   if (!panel.settings || panel.status === 'needsKey') return { ...restored, ...cleared, status: 'waiting', startPending: true };
   // Only "More" on the page changes the scope from outside, and the worker then starts that summary.
   if (settings.scope !== panel.settings.scope) return { ...restored, ...cleared, status: 'waiting' };
@@ -133,7 +148,12 @@ function applyRequest(panel: Panel, request: PanelRequest): Panel {
 }
 
 export function reduce(panel: Panel, event: PanelEvent): Panel {
+  if ('stream' in event && event.stream && panel.unstarted) return panel;
   switch (event.type) {
+    case 'started':
+      if (event.requested) return { ...panel, unstarted: panel.unstarted - 1 };
+      // The worker replaced whatever ran, after "More" on the page. A run the panel asked for replaces it in turn.
+      return panel.unstarted ? panel : wait(panel);
     case 'state':
       return applyState(panel, event.state);
     case 'delta':
@@ -168,16 +188,18 @@ export function reduce(panel: Panel, event: PanelEvent): Panel {
         chat: [],
         ...(panel.settings && { settings: { ...panel.settings, scope: 'page' } }),
       };
-    case 'requested':
-      return applyRequest(panel, event.request);
+    case 'requested': {
+      const next = applyRequest(panel, event.request);
+      return RUN_REQUESTS.has(event.request.type) ? { ...next, unstarted: next.unstarted + 1 } : next;
+    }
     case 'cancel':
       return { ...panel, status: 'ready', confirmTokens: undefined };
     case 'disconnected':
-      // A restarted worker has dropped its run. The next state shows whatever text it saved.
+      // A restarted worker has dropped its run and the requests it had not started. The next state shows any saved text.
       if (panel.status === 'waiting' || panel.status === 'streaming') {
-        return { ...panel, status: 'ready', summary: undefined, reply: undefined };
+        return { ...panel, status: 'ready', summary: undefined, reply: undefined, unstarted: 0 };
       }
-      return { ...panel, reply: undefined };
+      return { ...panel, reply: undefined, unstarted: 0 };
   }
 }
 

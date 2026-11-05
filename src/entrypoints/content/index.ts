@@ -1,6 +1,6 @@
 import type { Browser } from 'wxt/browser';
 import { FAILURES } from '@/lib/failures';
-import type { OpenPanelMessage, SelectionMessage, SelectionRequest } from '@/lib/messages';
+import type { OpenPanelMessage, SelectionMessage, SelectionRequest, WorkerErrorKind } from '@/lib/messages';
 import theme from '@/lib/theme.css?inline';
 import { countWords } from '@/lib/text';
 import style from './style.css?inline';
@@ -32,12 +32,16 @@ function inEditableArea(): boolean {
 /**
  * Places a shown element at the selection in page coordinates, so it scrolls with the text.
  * It goes above when its height fits there, and grows upward from there as text streams in.
+ * Below, it stays inside the window, over the selection if the selection reaches the bottom.
  */
 function place(element: HTMLElement, rect: DOMRect) {
+  const { clientWidth, clientHeight } = document.documentElement;
   const above = rect.top >= element.offsetHeight + GAP;
   element.classList.toggle('above', above);
-  element.style.left = `${Math.max(GAP, rect.left) + scrollX}px`;
-  element.style.top = `${(above ? rect.top - GAP : rect.bottom + GAP) + scrollY}px`;
+  const rightmost = clientWidth - element.offsetWidth - GAP;
+  const lowest = clientHeight - element.offsetHeight - GAP;
+  element.style.left = `${Math.max(GAP, Math.min(rect.left, rightmost)) + scrollX}px`;
+  element.style.top = `${(above ? rect.top - GAP : Math.max(GAP, Math.min(rect.bottom + GAP, lowest))) + scrollY}px`;
 }
 
 function mountSelectionUi() {
@@ -51,8 +55,11 @@ function mountSelectionUi() {
   const text = find('.text');
   const status = find('.status');
   const retry = find<HTMLButtonElement>('.retry');
+  const more = find<HTMLButtonElement>('.more');
 
   let selected = '';
+  /** A failure the model and key menu can fix. The panel opens on it, with no new request. */
+  let menuFailure: WorkerErrorKind | undefined;
   let selectedRect: DOMRect | undefined;
   let port: Browser.runtime.Port | undefined;
 
@@ -63,7 +70,7 @@ function mountSelectionUi() {
   };
 
   const openPanel = () => {
-    const message: OpenPanelMessage = { type: 'openPanel', text: selected };
+    const message: OpenPanelMessage = { type: 'openPanel', text: selected, ...(menuFailure && { failure: menuFailure }) };
     void browser.runtime.sendMessage(message);
     closePopup();
   };
@@ -78,6 +85,11 @@ function mountSelectionUi() {
       status.classList.add('failure');
     }
     retry.hidden = failure.action !== 'retry';
+    // The model and key menu is in the panel, so the button that opens the panel names what to do there.
+    if (typeof failure.action === 'object') {
+      menuFailure = message.kind;
+      more.textContent = failure.action.menu;
+    }
   };
 
   const ask = () => {
@@ -86,6 +98,8 @@ function mountSelectionUi() {
     status.textContent = 'Summarizing';
     status.classList.remove('failure');
     retry.hidden = true;
+    menuFailure = undefined;
+    more.textContent = 'More';
     port = browser.runtime.connect({ name: 'selection' });
     port.onMessage.addListener((raw) => {
       const message = raw as SelectionMessage;
@@ -118,7 +132,7 @@ function mountSelectionUi() {
     place(popup, selectedRect!);
   });
   onTrustedClick(retry, ask);
-  onTrustedClick(find('.more'), openPanel);
+  onTrustedClick(more, openPanel);
 
   const isOutside = (event: Event) => !event.composedPath().includes(host);
 

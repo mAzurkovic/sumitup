@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { App } from '../src/entrypoints/sidepanel/App';
 import { Markdown } from '../src/entrypoints/sidepanel/Markdown';
-import type { PanelMessage, PanelRequest, PanelState, WorkerErrorKind } from '../src/lib/messages';
+import { RUN_REQUESTS, type PanelMessage, type PanelRequest, type PanelState, type WorkerErrorKind } from '../src/lib/messages';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -23,10 +23,17 @@ let ports: FakePort[] = [];
 const connect = vi.fn(({ name }: { name: string }) => {
   const messageListeners: ((message: unknown) => void)[] = [];
   const disconnectListeners: (() => void)[] = [];
+  let unstarted = 0;
   const port: FakePort = {
     name,
     sent: [],
-    receive: (message) => act(async () => messageListeners.forEach((listener) => listener(message))),
+    // As the worker does, each requested run starts before anything else reaches the panel.
+    receive: (message) =>
+      act(async () => {
+        const started: PanelMessage[] = Array.from({ length: unstarted }, () => ({ type: 'started', requested: true }));
+        unstarted = 0;
+        [...started, message].forEach((each) => messageListeners.forEach((listener) => listener(each)));
+      }),
     drop: () => act(async () => disconnectListeners.forEach((listener) => listener())),
     disconnect: vi.fn(),
   };
@@ -35,7 +42,10 @@ const connect = vi.fn(({ name }: { name: string }) => {
     name,
     onMessage: { addListener: (listener: (message: unknown) => void) => messageListeners.push(listener) },
     onDisconnect: { addListener: (listener: () => void) => disconnectListeners.push(listener) },
-    postMessage: (request: PanelRequest) => port.sent.push(request),
+    postMessage: (request: PanelRequest) => {
+      port.sent.push(request);
+      if (RUN_REQUESTS.has(request.type)) unstarted++;
+    },
     disconnect: port.disconnect,
   };
 });
@@ -259,6 +269,17 @@ describe('model menu', () => {
     expect(menu.textContent).not.toContain('sk-');
   });
 
+  it('names the model button with its label and the current model', async () => {
+    await openComplete();
+    const pill = query('.pill')!;
+    const name = pill
+      .getAttribute('aria-labelledby')!
+      .split(' ')
+      .map((id) => container.querySelector(`#${id}`)?.textContent)
+      .join(' ');
+    expect(name).toBe('Model Claude Haiku 5.5');
+  });
+
   it('offers to summarize with the new model and keeps the summary', async () => {
     await openComplete();
     await click('Claude Sonnet 5.5');
@@ -401,6 +422,20 @@ describe('failures', () => {
     await port().receive(failed(kind, 'summary'));
     expect(query('[role="alert"]')?.textContent).toBe(message);
     expect(query('[role="alert"] button')).toBeNull();
+  });
+
+  it('opens the model and key menu with no click when it opens on a popup failure', async () => {
+    // The test DOM has no popover API.
+    const showPopover = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'showPopover', { value: showPopover, configurable: true });
+    onTestFinished(() => {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).showPopover;
+    });
+    await openWaiting({ scope: 'selection', failure: 'refused' });
+    expect(query('[role="alert"]')?.textContent).toContain('Provider declined this content');
+    expect(showPopover).toHaveBeenCalledOnce();
+    expect(showPopover.mock.contexts[0]).toBe(query('#model-menu'));
+    expect(sent()).toEqual([]);
   });
 
   it('keeps the failure on screen after another model is chosen', async () => {

@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  # The zip takes its version from package.json, so a tag that names another version would mislabel it.
+  # A suffix, as in v1.2.0-rc1, makes a pre-release.
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Check the tag matches the package version
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          case "$GITHUB_REF_NAME" in
+            "$version") echo "prerelease=" >> "$GITHUB_OUTPUT" ;;
+            "$version"-*) echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Tag $GITHUB_REF_NAME does not match package version $version"; exit 1 ;;
+          esac
+
+  check:
+    needs: tag
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: [tag, check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx wxt zip
+      - name: Attach the zip to a GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" dist/*-chrome.zip --generate-notes ${{ needs.tag.outputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ github.token }}

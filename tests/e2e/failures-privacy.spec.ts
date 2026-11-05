@@ -123,6 +123,15 @@ test('keeps the summary on screen when a later request fails', async ({ extensio
   await expect(panel.locator('li')).toHaveText('First summary.');
 });
 
+test('keeps the text of a run that a new request replaced, when the new request fails', async ({ extension, fake }) => {
+  const { panel } = await panelWith(extension, fake, { text: ['- Partial text'], then: 'hold' }, { status: 429 });
+  await expect(panel.locator('li')).toHaveText('Partial text');
+  await panel.getByLabel('Detail level').selectOption('medium');
+  await expect(alert(panel)).toContainText('Provider limit reached');
+  await expect(panel.locator('li')).toHaveText('Partial text');
+  await expect(panel.getByRole('button', { name: 'Sum it up' })).toHaveCount(0);
+});
+
 test('shows a failure in the popup, with Retry', async ({ extension, fake }) => {
   await extension.saveKey();
   fake.script({ status: 429 });
@@ -132,6 +141,21 @@ test('shows a failure in the popup, with Retry', async ({ extension, fake }) => 
   await ui.click('.trigger');
   await expect.poll(async () => (await ui.part('.status')).text).toBe('Provider limit reached');
   expect((await ui.part('.retry')).shown).toBe(true);
+});
+
+test('opens the panel and its menu on a popup failure, with no new call', async ({ extension, fake }) => {
+  await extension.saveKey();
+  fake.script({ status: 401 });
+  const tab = await extension.open(fake.page('/article', articlePage()));
+  const ui = new SelectionUi(tab);
+  await tab.locator('p').nth(1).click({ clickCount: 3 });
+  await ui.click('.trigger');
+  await expect.poll(async () => (await ui.part('.more')).text).toBe('Check your key');
+  await ui.click('.more');
+  const panel = await extension.waitForPanel(await extension.tabIdOf(tab));
+  await expect(alert(panel)).toContainText('API key rejected');
+  await expect(panel.locator('#model-menu')).toBeVisible();
+  expect(fake.calls).toHaveLength(1);
 });
 
 test.describe('speed', () => {
