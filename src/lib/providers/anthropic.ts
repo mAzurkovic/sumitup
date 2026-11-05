@@ -1,7 +1,8 @@
 import { send, streamText, type ClassifyError, type StreamStep } from './sse';
 import { ProviderError, type ProviderAdapter } from './types';
 
-const BASE_URL = 'https://api.anthropic.com/v1';
+// Test builds point this at a local fake provider. Production builds have only the real host.
+const BASE_URL = import.meta.env.WXT_ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com/v1';
 
 interface AnthropicEvent {
   type: string;
