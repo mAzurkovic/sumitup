@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://chromewebstore.google.com/detail/sum-it-up/fpmekjhbnbhmefammcjlmmjodmnkpbmp"><img src="https://img.shields.io/chrome-web-store/v/fpmekjhbnbhmefammcjlmmjodmnkpbmp?label=Chrome%20Web%20Store" alt="Chrome Web Store version"></a>
   <a href="https://github.com/mAzurkovic/sumitup/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mAzurkovic/sumitup/ci.yml?branch=main&label=build" alt="Build status"></a>
   <a href="package.json"><img src="https://img.shields.io/github/package-json/v/mAzurkovic/sumitup" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
@@ -114,7 +115,9 @@ You need Chrome 141 or newer and an API key from the [Anthropic Console](https:/
 
 ### Install
 
-The extension is not on the Chrome Web Store yet. Until it is, install the zip from the [latest release](https://github.com/mAzurkovic/sumitup/releases/latest):
+Install **Sum it up!** from the [Chrome Web Store](https://chromewebstore.google.com/detail/sum-it-up/fpmekjhbnbhmefammcjlmmjodmnkpbmp).
+
+To install a release without the store, use the zip from the [latest release](https://github.com/mAzurkovic/sumitup/releases/latest):
 
 1. Download `sum-it-up-<version>-chrome.zip` and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode**.
@@ -200,7 +203,7 @@ Detailed status is in [tasks.md](specs/sum-it-up/tasks.md).
 - [x] Side panel UI
 - [x] End-to-end tests against a fake provider, in CI
 - [x] Release workflow and store listing
-- [ ] First release on the Chrome Web Store
+- [x] First release on the Chrome Web Store
 - [ ] Quality evals against real models
 - [ ] OpenAI and Google Gemini providers
 - [ ] YouTube summaries from transcripts
